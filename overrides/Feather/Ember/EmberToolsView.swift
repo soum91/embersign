@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 import IDeviceSwift
 
 struct EmberToolsView: View {
+    @ObservedObject private var accounts = EmberAccountManager.shared
+
     var body: some View {
         NavigationStack {
             List {
@@ -18,10 +20,22 @@ struct EmberToolsView: View {
                         }
                     }.padding(.vertical, 10)
                 }
-                Section("Device tools") {
+                Section("Apple signing") {
                     NavigationLink { EmberAccountsView() } label: {
-                        Label("Apple Accounts", systemImage: "person.crop.circle.badge.checkmark")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label(accounts.accounts.isEmpty ? "Add Apple Account" : "Manage Apple Accounts", systemImage: "person.crop.circle.badge.checkmark")
+                            Text(accounts.accounts.isEmpty
+                                 ? "Sign in, complete 2FA, and provision apps."
+                                 : "\(accounts.accounts.count) saved • \(accounts.selectedAccount?.auth.account.appleID ?? "Choose an account") selected")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                    Text("Accounts stay separate in the device Keychain. See each account for its registered App IDs and estimated available slots.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Section("Device tools") {
                     NavigationLink { EmberDeviceAppsView() } label: {
                         Label("Installed apps", systemImage: "square.grid.2x2")
                     }

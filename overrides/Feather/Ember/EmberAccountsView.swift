@@ -26,7 +26,7 @@ struct EmberAccountsView: View {
                                 Text(account.selectedTeam?.name ?? "No team").font(.caption).foregroundStyle(.secondary)
                                 if let inventory = manager.inventories[account.id], let team = account.selectedTeam {
                                     if let remaining = inventory.appIDsRemaining(for: team) {
-                                        Text("App IDs: \(inventory.appIDs.count)/10 used, \(remaining) remaining")
+                                        Text("App IDs: \(inventory.appIDs.count)/10 registered, ~\(remaining) available")
                                             .font(.caption).foregroundStyle(.secondary)
                                     } else {
                                         Text("\(inventory.appIDs.count) registered App IDs")
@@ -41,7 +41,7 @@ struct EmberAccountsView: View {
                     }
                 }
             } header: { Text("Signed-in accounts") } footer: {
-                Text("Passwords are used only for Apple's sign-in request and are not saved. Auth sessions and generated signing keys are stored in this device's Keychain. Multiple accounts remain available until you remove them.")
+                Text("Passwords are used only for Apple's sign-in request and are not saved. Sessions and signing keys stay in this device's Keychain. Free-team availability is estimated from current registrations; deleting an App ID may not immediately restore Apple's seven-day quota.")
             }
 
             Section("Anisette") {
@@ -162,8 +162,10 @@ struct EmberAccountDetailView: View {
                     Button("Use for new signing") { manager.select(accountID) }
                     if let team = account.selectedTeam, let remaining = inventory.appIDsRemaining(for: team) {
                         LabeledContent("Personal Team App IDs", value: "\(inventory.appIDs.count)/10")
-                        LabeledContent("Remaining", value: String(remaining))
+                        LabeledContent("Estimated available", value: String(remaining))
                         LabeledContent("Per-device active-app limit", value: "3")
+                        Text("Apple controls the rolling seven-day App ID registration limit. This estimate can exceed the slots Apple will actually accept after recent deletions.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
 

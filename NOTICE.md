@@ -8,7 +8,7 @@ The signing engine and its original application code are fetched from:
 - Exact revision: `7078b053c0af262809a48e4d3898d42b0d35fedf`
 - License: GNU General Public License version 3. The full license is in LICENSE.
 
-Original source headers, About screen, dependency attributions, and dependency licenses are retained in the assembled source distribution. EmberSign modifications and additions are also licensed under GPL-3.0. `scripts/prepare.py` identifies the changes to the original application; the `overrides` directory contains EmberSign's additional source. Build releases include the complete assembled source with the upstream submodules at their pinned revisions.
+Original source headers, developer credits, dependency attributions, and dependency licenses are retained in the assembled source distribution. EmberSign has its own About screen with visible Feather and SideSign attribution. EmberSign modifications and additions are also licensed under GPL-3.0. `scripts/prepare.py` identifies the changes to the original application; the `overrides` directory contains EmberSign's additional and replacement source. Build releases include the complete assembled source with the upstream submodules at their pinned revisions.
 
 Feather dependencies include Zsign, IDeviceKit/idevice, NimbleKit, AltSourceKit, Zip, SWCompression, Nuke, and Vapor. Their respective licenses continue to apply.
 

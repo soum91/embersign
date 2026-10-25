@@ -256,7 +256,7 @@ final class EmberAccountManager: ObservableObject {
         }
         let profiles = try await portal.listProvisioningProfiles(for: team, session: account.auth.session)
         for profile in profiles where profile.bundleIdentifier == bundleID {
-            if let id = profile.identifier { _ = try? await portal.deleteProvisioningProfile(profileID: id, team: team, session: account.auth.session) }
+            if let id = profile.identifier { _ = try await portal.deleteProvisioningProfile(profileID: id, team: team, session: account.auth.session) }
         }
         let appIDs = try await portal.fetchAppIDs(for: team, session: account.auth.session)
         if let appID = appIDs.first(where: { $0.bundleIdentifier == bundleID }) {
