@@ -1,0 +1,62 @@
+name: Build EmberSign
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: embersign-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test pairing and entitlement policies
+        run: swift test
+      - name: Fetch pinned signing engine and apply EmberSign source
+        run: bash scripts/bootstrap.sh
+      - name: Select Xcode
+        run: |
+          xcodebuild -version
+          xcrun swift --version
+      - name: Build and package IPA
+        run: bash scripts/build.sh
+      - name: Bundle complete source with licenses
+        run: |
+          cp README.md upstream/EMBERSIGN-README.md
+          cp NOTICE.md upstream/EMBERSIGN-NOTICE.md
+          tar --exclude='.git' --exclude='_build' --exclude='deps' -czf packages/EmberSign-Source.tar.gz -C upstream .
+      - name: Upload build files and diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmberSign-build-${{ github.run_number }}
+          path: packages/*
+          if-no-files-found: warn
+      - name: Publish installable package for personal signing
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-build.${{ github.run_number }}
+          name: EmberSign 0.1.0 build ${{ github.run_number }}
+          make_latest: true
+          fail_on_unmatched_files: true
+          body: |
+            EmberSign first development build for iOS 16 and later.
+
+            Includes on-device certificate signing, IPA installation/export, tweak injection, pairing-file import/export, JIT entitlement preparation, and StikDebug/SideJITServer activation controls.
+
+            Re-sign EmberSign.ipa using your signing tool before installation. Direct Apple Account sign-in and standalone built-in JIT activation are not implemented in this version. Actual JIT compatibility depends on iOS, hardware, provisioning, and the target app.
+
+            Complete engine source and original licenses are included in EmberSign-Source.tar.gz. Runtime behavior still needs device testing.
+          files: |
+            packages/EmberSign.ipa
+            packages/EmberSign.ipa.sha256
+            packages/build-info.json
+            packages/EmberSign-Source.tar.gz

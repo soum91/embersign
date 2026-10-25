@@ -1,0 +1,10 @@
+.build/
+build/
+upstream/
+packages/
+*.p12
+*.mobileprovision
+*.mobiledevicepairing
+pairingFile.plist
+__pycache__/
+.DS_Store
