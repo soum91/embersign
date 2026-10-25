@@ -38,6 +38,11 @@ Tweak injection applies to the IPA being signed. Jailbreak-only services and sys
 
 ## Install and use
 
+FlareStore/AltStore-compatible feed: `https://raw.githubusercontent.com/soum91/embersign/main/source.json`.
+The release workflow updates this feed only after the IPA has been published successfully.
+The feed version includes the build number (for example `0.2.0.11`), matching the installed app version.
+If a client caches an older entry, refresh the source in that client.
+
 1. Download `EmberSign.ipa` from Releases. The CI IPA is ad-hoc signed and must be re-signed using your existing signing tool before installing it.
 2. In Tools > Apple Accounts, sign in and complete 2FA, or import an existing signing certificate/profile from Settings or Tools.
 3. In Apps, import an IPA and choose Sign. Choose **Provision with Apple Account** to create a fresh identity for that bundle ID, or select an imported certificate. Add tweaks before signing. To prepare a compatible app for JIT, enable Prepare for JIT and use a development profile.

@@ -25,6 +25,8 @@ jobs:
           xcrun swift --version
       - name: Test pairing and entitlement policies
         run: swift test
+      - name: Test FlareStore feed generation
+        run: python3 -m unittest discover -s Tests -p 'test_source_feed.py'
       - name: Fetch pinned signing engine and apply EmberSign source
         run: bash scripts/bootstrap.sh
       - name: Install project generator
@@ -44,6 +46,8 @@ jobs:
         with:
           path: build/DerivedData
           key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml') }}
+      - name: Prepare FlareStore feed for the packaged IPA
+        run: python3 scripts/update_source.py
       - name: Bundle complete source with licenses
         run: |
           cp README.md upstream/EMBERSIGN-README.md
@@ -78,3 +82,12 @@ jobs:
             packages/EmberSign.ipa.sha256
             packages/build-info.json
             packages/EmberSign-Source.tar.gz
+      - name: Update FlareStore feed after successful release
+        run: |
+          git add source.json
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m "Update FlareStore feed for build ${{ github.run_number }} [skip ci]"
+            git push origin HEAD:main
+          fi

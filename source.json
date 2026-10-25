@@ -12,14 +12,23 @@
       "name": "EmberSign",
       "bundleIdentifier": "com.soum91.embersign",
       "developerName": "soum91",
-      "subtitle": "Sign, customize, and manage IPAs",
-      "localizedDescription": "EmberSign signs imported IPAs using imported certificates and provisioning profiles, supports compatible tweak injection, imports and exports pairing records, and prepares development-signed apps for JIT through StikDebug or a configured SideJITServer. It does not provide direct Apple Account sign-in or create a fresh pairing record entirely on-device.",
+      "subtitle": "Apple Accounts, IPA signing and JIT tools",
+      "localizedDescription": "EmberSign signs IPAs using imported certificates or Apple Account provisioning, supports multiple saved Apple Accounts, compatible tweak injection, pairing-file management, JIT preparation, paired-device app inventory, best-effort app refresh, and error diagnostics with online lookup. Apple services and background refresh require device testing; a pairing tunnel is needed for installed-app inventory.",
       "iconURL": "https://raw.githubusercontent.com/soum91/embersign/main/assets/icon.png",
       "tintColor": "#F27A35",
       "category": "utilities",
       "versions": [
         {
-          "version": "0.1.0",
+          "version": "0.2.0.10",
+          "buildVersion": "10",
+          "date": "2026-10-25",
+          "localizedDescription": "EmberSign 0.2.0 build 10: Apple Accounts, signing and provisioning, paired-device app inventory, quota estimates, refresh controls, JIT tools, and diagnostics.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.0-build.10/EmberSign.ipa",
+          "size": 19144097,
+          "minOSVersion": "16.0"
+        },
+        {
+          "version": "0.1.0.4",
           "buildVersion": "4",
           "date": "2026-10-25",
           "localizedDescription": "First development release with certificate and provisioning-profile signing, compatible tweak injection, pairing-record import and export, and JIT preparation with StikDebug or SideJITServer handoff.",
@@ -28,11 +37,11 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.1.0",
+      "version": "0.2.0.10",
       "versionDate": "2026-10-25",
-      "versionDescription": "First development release with certificate and provisioning-profile signing, compatible tweak injection, pairing-record import and export, and JIT preparation with StikDebug or SideJITServer handoff.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.1.0-build.4/EmberSign.ipa",
-      "size": 14906790
+      "versionDescription": "EmberSign 0.2.0 build 10: Apple Accounts, signing and provisioning, paired-device app inventory, quota estimates, refresh controls, JIT tools, and diagnostics.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.0-build.10/EmberSign.ipa",
+      "size": 19144097
     }
   ],
   "news": []

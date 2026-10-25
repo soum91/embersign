@@ -17,7 +17,7 @@ metadata = {
     "sha256": digest, "size": ipa.stat().st_size,
     "signing": "ad-hoc; requires personal re-signing",
     "jit_activation": "StikDebug handoff or user-configured SideJITServer",
-    "apple_account_login": False,
+    "apple_account_login": True,
 }
 (ROOT / "packages/build-info.json").write_text(json.dumps(metadata, indent=2) + "\n")
 (ROOT / "packages/EmberSign.ipa.sha256").write_text(f"{digest}  EmberSign.ipa\n")
