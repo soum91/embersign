@@ -36,7 +36,7 @@ The pairing record contains private device-trust credentials. EmberSign keeps it
 
 ## Build
 
-Requires macOS, Xcode with the iOS 26 SDK or later supported by the pinned engine, Git, Python 3, and network access for Swift packages and engine dependencies.
+Requires macOS, Xcode 26.3, XcodeGen, Git, Python 3, and network access for Swift packages and engine dependencies.
 
 ```sh
 swift test
@@ -44,7 +44,7 @@ bash scripts/bootstrap.sh
 bash scripts/build.sh
 ```
 
-The source engine is pinned in `upstream.lock.json`. Bootstrap checks out that exact revision, checks out its pinned submodules, and applies the source in `overrides` and the guarded modifications in `scripts/prepare.py`. The full assembled application can then be opened using `upstream/Feather.xcodeproj` and the Feather scheme. Internal project/model names remain unchanged to preserve engine compatibility; the installed application is EmberSign with its own bundle ID and URL scheme.
+The source engine is pinned in `upstream.lock.json`. Bootstrap checks out that exact revision, checks out its pinned submodules, and applies the source in `overrides` and the guarded modifications in `scripts/prepare.py`. The build script generates a clean project from `project.yml`, replacing duplicate upstream package links. The full assembled application can then be opened using `upstream/Feather.xcodeproj` and the Feather scheme. Internal project/model names remain unchanged to preserve engine compatibility; the installed application is EmberSign with its own bundle ID and URL scheme.
 
 Every push to main runs core policy tests and builds an IPA on GitHub Actions. Successful builds publish the IPA, SHA-256, build metadata, and complete assembled source with licenses. Build logs are retained as Actions artifacts even when compilation fails. Runtime signing, installation, tweak loading, and JIT still need testing on a real device.
 

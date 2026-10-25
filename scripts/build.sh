@@ -6,6 +6,9 @@ TASK_BUILD="${GITHUB_RUN_NUMBER:-1}"
 mkdir -p "$TASK_ROOT/packages"
 cd "$TASK_UPSTREAM"
 xcrun swift "$TASK_ROOT/scripts/make_icon.swift" "$TASK_UPSTREAM/Feather/Resources"
+cp "$TASK_ROOT/project.yml" "$TASK_UPSTREAM/EmberSign.project.yml"
+# Generate explicit, unique package-product links instead of the inherited duplicates.
+xcodegen generate --spec EmberSign.project.yml
 make deps
 xcodebuild -project Feather.xcodeproj -scheme Feather -configuration Release \
   -destination 'generic/platform=iOS' -derivedDataPath "$TASK_ROOT/build/DerivedData" \

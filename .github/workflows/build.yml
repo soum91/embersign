@@ -27,6 +27,8 @@ jobs:
         run: swift test
       - name: Fetch pinned signing engine and apply EmberSign source
         run: bash scripts/bootstrap.sh
+      - name: Install project generator
+        run: command -v xcodegen || brew install xcodegen
       - name: Restore Swift package downloads
         uses: actions/cache@v4
         with:
