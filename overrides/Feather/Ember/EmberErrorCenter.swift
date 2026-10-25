@@ -113,7 +113,12 @@ struct EmberErrorCenterView: View {
     var body: some View {
         List {
             if center.entries.isEmpty {
-                ContentUnavailableView("No recorded errors", systemImage: "checkmark.circle", description: Text("Apple, signing, pairing, installation, and refresh failures will appear here with their complete domain and code."))
+                VStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle").font(.largeTitle).foregroundStyle(.secondary)
+                    Text("No recorded errors").font(.headline)
+                    Text("Apple, signing, pairing, installation, and refresh failures will appear here with their complete domain and code.")
+                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }.frame(maxWidth: .infinity).padding(.vertical, 24)
             } else {
                 ForEach(center.entries) { entry in
                     Button { selected = entry } label: {

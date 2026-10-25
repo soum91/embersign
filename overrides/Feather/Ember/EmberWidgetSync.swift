@@ -2,6 +2,8 @@ import Foundation
 import CoreData
 import WidgetKit
 import SwiftUI
+import UniformTypeIdentifiers
+import NimbleViews
 
 enum EmberQuickDestination: String, Identifiable { case importIPA, library; var id: String { rawValue } }
 @MainActor final class EmberQuickRouter: ObservableObject {

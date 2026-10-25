@@ -14,13 +14,15 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
         proxy.delegate = self
     }
 
-    func updateApplications(with apps: [AppInfo]) {
-        self.apps = apps.sorted {
-            ($0.CFBundleDisplayName ?? $0.CFBundleName ?? $0.CFBundleIdentifier ?? "")
-                .localizedCaseInsensitiveCompare($1.CFBundleDisplayName ?? $1.CFBundleName ?? $1.CFBundleIdentifier ?? "") == .orderedAscending
+    nonisolated func updateApplications(with apps: [AppInfo]) {
+        Task { @MainActor [weak self] in
+            self?.apps = apps.sorted {
+                ($0.CFBundleDisplayName ?? $0.CFBundleName ?? $0.CFBundleIdentifier ?? "")
+                    .localizedCaseInsensitiveCompare($1.CFBundleDisplayName ?? $1.CFBundleName ?? $1.CFBundleIdentifier ?? "") == .orderedAscending
+            }
+            self?.isLoading = false
+            self?.status = "Found \(apps.count) apps through the paired-device service."
         }
-        isLoading = false
-        status = "Found \(apps.count) apps through the paired-device service."
     }
 
     func scan() async {

@@ -269,7 +269,8 @@ final class EmberAccountManager: ObservableObject {
         let targetID = accountID ?? selectedAccountID
         guard var account = accounts.first(where: { $0.id == targetID }) else { throw EmberAccountStoreError.missingAccount }
         guard let team = account.selectedTeam else { throw EmberAccountStoreError.missingTeam }
-        guard let udid = try? EmberPairingStore.read().udid, let udid, !udid.isEmpty else {
+        let pairingRecord = try EmberPairingStore.read()
+        guard let udid = pairingRecord.udid, !udid.isEmpty else {
             throw EmberAccountStoreError.missingPairingUDID
         }
 

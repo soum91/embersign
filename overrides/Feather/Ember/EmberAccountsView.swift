@@ -9,7 +9,12 @@ struct EmberAccountsView: View {
         List {
             Section {
                 if manager.accounts.isEmpty {
-                    ContentUnavailableView("No Apple Accounts", systemImage: "person.crop.circle.badge.plus", description: Text("Add an account to create development certificates and fresh app profiles on-device."))
+                    VStack(spacing: 10) {
+                        Image(systemName: "person.crop.circle.badge.plus").font(.largeTitle).foregroundStyle(.secondary)
+                        Text("No Apple Accounts").font(.headline)
+                        Text("Add an account to create development certificates and fresh app profiles on-device.")
+                            .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }.frame(maxWidth: .infinity).padding(.vertical, 24)
                 } else {
                     ForEach(manager.accounts) { account in
                         NavigationLink { EmberAccountDetailView(accountID: account.id) } label: {
