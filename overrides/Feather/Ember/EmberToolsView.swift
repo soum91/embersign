@@ -19,6 +19,15 @@ struct EmberToolsView: View {
                     }.padding(.vertical, 10)
                 }
                 Section("Device tools") {
+                    NavigationLink { EmberAccountsView() } label: {
+                        Label("Apple Accounts", systemImage: "person.crop.circle.badge.checkmark")
+                    }
+                    NavigationLink { EmberDeviceAppsView() } label: {
+                        Label("Installed apps", systemImage: "square.grid.2x2")
+                    }
+                    NavigationLink { EmberAutoRefreshView() } label: {
+                        Label("Auto refresh", systemImage: "arrow.triangle.2.circlepath")
+                    }
                     NavigationLink { EmberPairingView() } label: {
                         Label("Pairing file", systemImage: "iphone.and.arrow.forward")
                     }
@@ -33,10 +42,14 @@ struct EmberToolsView: View {
                     NavigationLink { ConfigurationView() } label: {
                         Label("Default signing options", systemImage: "signature")
                     }
+                    NavigationLink { EmberErrorCenterView() } label: {
+                        Label("Error diagnostics", systemImage: "stethoscope")
+                    }
                     Text("Import an IPA in Apps, tap Sign, then open Tweaks to add compatible libraries or Debian packages before signing.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Compatibility") {
+                    Text("Apple Account provisioning uses SideSign and Anisette. Passwords are never saved. Sessions and generated keys stay in this device's Keychain.")
                     Text("JIT preparation requires a development provisioning profile. Activation uses StikDebug on supported devices or your own SideJITServer. Newer iOS versions can require app-specific JIT support.")
                     Text("An exported pairing file is a copy of your imported record. Initial pairing normally uses a trusted computer. Lockdown and remote-pairing files are different formats; the receiving app must support the format you export.")
                     Text("Tweaks run inside the signed app. Tweaks that depend on jailbreak services or system-wide hooks will not work.")

@@ -12,4 +12,6 @@ Original source headers, About screen, dependency attributions, and dependency l
 
 Feather dependencies include Zsign, IDeviceKit/idevice, NimbleKit, AltSourceKit, Zip, SWCompression, Nuke, and Vapor. Their respective licenses continue to apply.
 
+Apple Account authentication and provisioning use SideSign from the SideStore project at revision `752d1ef602aa792a432ffa1e71646dc1ecf7363c`, licensed under GPL-3.0. SideSign includes CodeSignKit, GSACryptoKit, AnisetteKit, swift-crypto, and libdeflate dependencies whose respective licenses continue to apply.
+
 StikDebug and SideJITServer are separate programs. EmberSign invokes their documented interfaces; they are not bundled or represented as EmberSign's own JIT engine.

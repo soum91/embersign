@@ -59,16 +59,18 @@ jobs:
       - name: Publish installable package for personal signing
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.0-build.${{ github.run_number }}
-          name: EmberSign 0.1.0 build ${{ github.run_number }}
+          tag_name: v0.2.0-build.${{ github.run_number }}
+          name: EmberSign 0.2.0 build ${{ github.run_number }}
           make_latest: true
           fail_on_unmatched_files: true
           body: |
-            EmberSign first development build for iOS 16 and later.
+            EmberSign 0.2.0 development build for iOS 16 and later.
 
-            Includes on-device certificate signing, IPA installation/export, tweak injection, pairing-file import/export, JIT entitlement preparation, and StikDebug/SideJITServer activation controls.
+            Adds multiple Apple Account sessions, 2FA, on-device free/paid development provisioning, account/team quotas, certificate/App ID/profile management, paired-device app inventory, uninstall and portal cleanup, automatic re-sign/reinstall attempts, and error-code diagnostics with online issue lookup.
 
-            Re-sign EmberSign.ipa using your signing tool before installation. Direct Apple Account sign-in and standalone built-in JIT activation are not implemented in this version. Actual JIT compatibility depends on iOS, hardware, provisioning, and the target app.
+            Also includes imported-certificate signing, IPA installation/export, tweak injection, pairing-file import/export, JIT entitlement preparation, and StikDebug/SideJITServer activation controls.
+
+            Re-sign EmberSign.ipa using your current signing tool before installation. Apple Account features depend on Apple developer services and Anisette. Background refresh is best-effort and requires a reachable pairing tunnel. Standalone built-in JIT activation is not implemented; actual JIT compatibility depends on iOS, hardware, provisioning, and the target app.
 
             Complete engine source and original licenses are included in EmberSign-Source.tar.gz. Runtime behavior still needs device testing.
           files: |

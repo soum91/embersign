@@ -5,6 +5,13 @@ An iOS 16+ app for signing and customizing IPAs on device, managing pairing file
 ## Features
 
 - On-device signing with an imported `.p12` certificate and `.mobileprovision` profile.
+- Apple Account sign-in with trusted-device, SMS, or voice 2FA through SideSign and configurable Anisette, with multiple sessions stored separately in the device Keychain.
+- Personal Team quota, certificate, App ID, provisioning-profile, and registered-device inventory for every saved account/team.
+- One-tap Apple Account provisioning from the signing screen, including device registration, App ID creation, certificate creation, and a fresh app-specific development profile.
+- Paired-device app inventory showing bundle ID, version/build, signer, team/account match, application identifier, and JIT entitlement.
+- Uninstall-only and uninstall-plus-portal-record cleanup actions. Apple still controls when Personal Team quota becomes reusable.
+- Automatic re-sign/reinstall attempts for apps provisioned through EmberSign, with a manual refresh action and iOS background-fetch support.
+- Structured error history with Apple/SideSign domain and code, local recovery guidance, SideStore issue lookup, and wider web search.
 - IPA import, app library, signing options, installation, expiry display, and signed IPA export.
 - Compatible `.dylib`, `.deb`, framework, and bundle injection before signing, inherited from Feather.
 - A **Prepare for JIT** signing switch that validates the selected development profile before adding debugger permission.
@@ -15,7 +22,13 @@ An iOS 16+ app for signing and customizing IPAs on device, managing pairing file
 
 ## Current limits
 
-This first development version uses certificate/profile import. **Direct Apple Account authentication, automatic free-account provisioning/refresh, and a standalone embedded JIT engine are not implemented.** StikDebug is required for the on-device activation path. A computer running SideJITServer is an alternative.
+Apple Account authentication and provisioning depend on Apple's private developer-service behavior and Anisette. Apple can change either flow without notice, public Anisette services can be unavailable, and repeated failed sign-ins can be rate-limited. EmberSign never stores the Apple Account password. Auth sessions and generated signing keys are stored in the iOS Keychain.
+
+Automatic refresh is best-effort. iOS decides when background fetch runs, and reinstallation requires the matching pairing file and a reachable LocalDevVPN tunnel. Open EmberSign periodically and use **Refresh tracked apps now** if iOS has not granted background time.
+
+A paired tunnel lets EmberSign query Apple's installation service for user-app metadata. Without a working pairing tunnel, EmberSign cannot enumerate all installed apps. An account can be matched when the app exposes a team identifier that belongs to one of the signed-in development teams.
+
+Deleting a provisioning profile or App ID does not guarantee immediate quota recovery. Personal Team App IDs, devices, profiles, and the three-app per-device limit are enforced by Apple. Revoking a certificate can make every app signed with it stop launching.
 
 Preparing entitlements is not the same as activating JIT. A distribution profile cannot be turned into a development profile by changing a switch. Actual JIT availability depends on iOS, hardware, debugger access, developer-image setup, and the target application's implementation. New iOS versions may require app-specific support.
 
@@ -26,11 +39,12 @@ Tweak injection applies to the IPA being signed. Jailbreak-only services and sys
 ## Install and use
 
 1. Download `EmberSign.ipa` from Releases. The CI IPA is ad-hoc signed and must be re-signed using your existing signing tool before installing it.
-2. In Settings or Tools, import your signing certificate and profile.
-3. In Apps, import an IPA and choose Sign. Add tweaks in the signing screen before signing. To prepare a compatible app for JIT, enable Prepare for JIT and select a development profile.
+2. In Tools > Apple Accounts, sign in and complete 2FA, or import an existing signing certificate/profile from Settings or Tools.
+3. In Apps, import an IPA and choose Sign. Choose **Provision with Apple Account** to create a fresh identity for that bundle ID, or select an imported certificate. Add tweaks before signing. To prepare a compatible app for JIT, enable Prepare for JIT and use a development profile.
 4. Install or export the signed IPA.
 5. In Tools > Pairing file, import your trusted pairing record. Export a copy to Files when you need to import it into Reynard or another compatible tool.
 6. For on-device JIT activation, import the appropriate pairing record into StikDebug, connect LocalDevVPN, complete its developer-image setup, and use Enable JIT in EmberSign. StikDebug displays the activation result. Alternatively configure your own SideJITServer address and choose your device.
+7. In Tools > Installed apps, scan the paired device to inspect signing details or uninstall an app. In Tools > Auto refresh, enable background attempts and choose the remaining-days threshold.
 
 The pairing record contains private device-trust credentials. EmberSign keeps its copy protected on device; exporting it is an explicit user action. JIT server requests send only device/app identifiers to the address you configure. They do not upload your pairing file or signing keys.
 
@@ -50,4 +64,4 @@ Every push to main runs core policy tests and builds an IPA on GitHub Actions. S
 
 ## Credits
 
-Built on Feather by Samara M and contributors, with its original licenses and credits preserved. See NOTICE.md and LICENSE. StikDebug and SideJITServer are independently maintained companion tools.
+Built on Feather by Samara M and contributors. Apple Account provisioning uses SideSign by the SideStore contributors. Original licenses and credits are preserved in the assembled source and NOTICE.md. StikDebug and SideJITServer are independently maintained companion tools.

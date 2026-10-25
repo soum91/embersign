@@ -70,11 +70,23 @@ def prepare(destination):
     settings = app / "Views/Settings/SettingsView.swift"
     replace_once(settings, 'private let _githubUrl = "https://github.com/claration/Feather"', 'private let _githubUrl = "https://github.com/soum91/embersign"')
     replace_once(settings, '\t\t\t\t#if !NIGHTLY && !DEBUG\n\t\t\t\t\tSettingsDonationCellView(site: _donationsUrl)\n\t\t\t\t#endif', '''                Section("EmberSign") {
+                    NavigationLink { EmberAccountsView() } label: {
+                        Label("Apple Accounts", systemImage: "person.crop.circle.badge.checkmark")
+                    }
+                    NavigationLink { EmberDeviceAppsView() } label: {
+                        Label("Installed apps", systemImage: "square.grid.2x2")
+                    }
+                    NavigationLink { EmberAutoRefreshView() } label: {
+                        Label("Auto refresh", systemImage: "arrow.triangle.2.circlepath")
+                    }
                     NavigationLink { EmberPairingView() } label: {
                         Label("Pairing file", systemImage: "iphone.and.arrow.forward")
                     }
                     NavigationLink { EmberJITView() } label: {
                         Label("JIT", systemImage: "bolt.fill")
+                    }
+                    NavigationLink { EmberErrorCenterView() } label: {
+                        Label("Error diagnostics", systemImage: "stethoscope")
                     }
                 }''')
     # Both the old tunnel settings screen and Tools use the same validated manager.
@@ -84,8 +96,65 @@ def prepare(destination):
                     EmberJITService.shared.present(bundleID: id)
                 }
 \t\t\t\tButton(.localized("Open"), systemImage: "app.badge.checkmark") {''')
+    signing_view = app / "Views/Signing/SigningView.swift"
+    replace_once(signing_view, '\t@State private var _isSigning = false', '\t@State private var _isSigning = false\n    @State private var _isAppleProvisioning = false')
+    replace_once(signing_view, '\t\tNBSection(.localized("Signing")) {\n\t\t\tif let cert = _selectedCert() {', '''\t\tNBSection(.localized("Signing")) {
+            if !EmberAccountManager.shared.accounts.isEmpty {
+                Button {
+                    _provisionWithAppleAccount()
+                } label: {
+                    HStack {
+                        Label("Provision with Apple Account", systemImage: "person.crop.circle.badge.checkmark")
+                        Spacer()
+                        if _isAppleProvisioning { ProgressView() }
+                    }
+                }
+                .disabled(_isAppleProvisioning)
+            } else {
+                NavigationLink { EmberAccountsView() } label: {
+                    Label("Add Apple Account", systemImage: "person.crop.circle.badge.plus")
+                }
+            }
+\t\t\tif let cert = _selectedCert() {''')
+    replace_once(signing_view, '// MARK: - Extension: View (import)\nextension SigningView {\n\tprivate func _start() {', '''// MARK: - Extension: View (import)
+extension SigningView {
+    private func _provisionWithAppleAccount() {
+        guard let identifier = _temporaryOptions.appIdentifier ?? app.identifier else { return }
+        _isAppleProvisioning = true
+        Task {
+            do {
+                _ = try await EmberAccountManager.shared.provisionSigningIdentity(bundleID: identifier)
+                _temporaryCertificate = 0
+            } catch {
+                EmberErrorCenter.shared.record(error, operation: "Provision signing identity")
+                UIAlertController.showAlertWithOk(title: "Provisioning failed", message: error.localizedDescription)
+            }
+            _isAppleProvisioning = false
+        }
+    }
+
+\tprivate func _start() {''')
     main = app / "FeatherApp.swift"
     replace_once(main, '\t@UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate', '\t@UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate\n    @StateObject private var emberJIT = EmberJITService.shared')
+    replace_once(main, '\t\t_addDefaultCertificates()\n\t\treturn true', '''\t\t_addDefaultCertificates()
+        EmberAutoRefreshManager.shared.configure()
+\t\treturn true''')
+    replace_once(main, '\n\tprivate func _createPipeline() {', '''
+    func application(
+        _ application: UIApplication,
+        performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        guard EmberAutoRefreshManager.shared.enabled else {
+            completionHandler(.noData)
+            return
+        }
+        Task { @MainActor in
+            let succeeded = await EmberAutoRefreshManager.shared.refreshAll()
+            completionHandler(succeeded ? .newData : .failed)
+        }
+    }
+
+\tprivate func _createPipeline() {''')
     replace_once(main, '\t\t\t.animation(.smooth, value: downloadManager.manualDownloads.description)', '''            .sheet(isPresented: $emberJIT.showAppSheet) {
                 NavigationStack {
                     EmberJITView()
@@ -116,15 +185,6 @@ def prepare(destination):
         content = content.replace('?? "#848ef9"', '?? "#F27A35"')
         swift.write_text(content)
 
-    replace_once(main, "    @StateObject private var emberJIT = EmberJITService.shared", "    @StateObject private var emberJIT = EmberJITService.shared\n    @StateObject private var emberQuickRouter = EmberQuickRouter.shared")
-    replace_once(main, "            .sheet(isPresented: $emberJIT.showAppSheet) {", """            .onAppear { EmberWidgetSync.refresh() }
-            .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in EmberWidgetSync.refresh() }
-            .sheet(item: $emberQuickRouter.destination) { destination in
-                EmberQuickSheet(destination: destination)
-                    .environment(\\.managedObjectContext, storage.context)
-            }
-            .sheet(isPresented: $emberJIT.showAppSheet) {""")
-
     project = destination / "Feather.xcodeproj/project.pbxproj"
     content = project.read_text().replace('INFOPLIST_KEY_CFBundleDisplayName = Feather;', 'INFOPLIST_KEY_CFBundleDisplayName = EmberSign;')
     # Alternate inherited team values must not affect this application's signing identity.
@@ -144,10 +204,11 @@ DSTROOT = $(SRCROOT)/_build/
         entry["CFBundleURLSchemes"] = ["embersign"]
     plist["LSApplicationQueriesSchemes"] = ["localdevvpn", "stikdebug"]
     plist["NSLocalNetworkUsageDescription"] = "Connect to your trusted pairing tunnel or JIT server to install and debug your apps."
+    plist["UIBackgroundModes"] = ["fetch"]
     ats = plist.setdefault("NSAppTransportSecurity", {})
     ats["NSAllowsLocalNetworking"] = True
-    # Keep local networking support without a global transport-security exception.
-    ats.pop("NSAllowsArbitraryLoads", None)
+    # SideJITServer normally serves HTTP on a user-entered LAN IP address.
+    ats["NSAllowsArbitraryLoads"] = True
     plist["CFBundleDocumentTypes"].append({
         "CFBundleTypeName": "Device pairing file", "CFBundleTypeRole": "Viewer",
         "LSHandlerRank": "Alternate", "LSItemContentTypes": ["com.soum91.embersign.pairing"]
