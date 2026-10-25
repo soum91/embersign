@@ -5,6 +5,7 @@ TASK_UPSTREAM="${1:-$TASK_ROOT/upstream}"
 TASK_BUILD="${GITHUB_RUN_NUMBER:-1}"
 mkdir -p "$TASK_ROOT/packages"
 cd "$TASK_UPSTREAM"
+xcrun swift "$TASK_ROOT/scripts/make_icon.swift" "$TASK_UPSTREAM/Feather/Resources"
 make deps
 xcodebuild -project Feather.xcodeproj -scheme Feather -configuration Release \
   -destination 'generic/platform=iOS' -derivedDataPath "$TASK_ROOT/build/DerivedData" \

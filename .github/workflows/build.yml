@@ -18,14 +18,20 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: Select the signing engine's tested Xcode version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.0.app/Contents/Developer
+          xcodebuild -version
+          xcrun swift --version
       - name: Test pairing and entitlement policies
         run: swift test
       - name: Fetch pinned signing engine and apply EmberSign source
         run: bash scripts/bootstrap.sh
-      - name: Select Xcode
-        run: |
-          xcodebuild -version
-          xcrun swift --version
+      - name: Restore Swift package downloads
+        uses: actions/cache@v4
+        with:
+          path: build/DerivedData/SourcePackages
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-spm-${{ hashFiles('upstream.lock.json') }}
       - name: Build and package IPA
         run: bash scripts/build.sh
       - name: Bundle complete source with licenses

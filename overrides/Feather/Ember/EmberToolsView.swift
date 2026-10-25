@@ -83,12 +83,12 @@ struct EmberPairingView: View {
                         Label("Check local tunnel", systemImage: "network")
                         if checking { Spacer(); ProgressView() }
                     }
-                }.disabled(checking || record == nil)
+                }.disabled(checking || record == nil || record?.kind == .remote)
                 Button(role: .destructive) { removing = true } label: {
                     Label("Remove pairing file", systemImage: "trash")
                 }.disabled(record == nil)
             } footer: {
-                Text("Export to Files, then import that file in Reynard or another compatible app. The record contains private device-trust credentials; share it only with apps you trust.")
+                Text("Export to Files, then import that file in Reynard or another compatible app. The record contains private device-trust credentials; share it only with apps you trust. The socket check applies to Lockdown tunnels; validate remote pairing in your JIT tool.")
             }
             Section("First-time setup") {
                 Text("Pair your phone using iLoader or another trusted pairing tool on your computer. Import the resulting .mobiledevicepairing or .plist file here. EmberSign cannot extract credentials from another app's private storage.")
