@@ -1,0 +1,39 @@
+{
+  "name": "EmberSign",
+  "identifier": "com.soum91.embersign.source",
+  "subtitle": "On-device signing and tweak injection",
+  "description": "Development releases of EmberSign for iOS.",
+  "iconURL": "https://raw.githubusercontent.com/soum91/embersign/main/assets/icon.png",
+  "website": "https://github.com/soum91/embersign",
+  "sourceURL": "https://raw.githubusercontent.com/soum91/embersign/main/source.json",
+  "tintColor": "#F27A35",
+  "apps": [
+    {
+      "name": "EmberSign",
+      "bundleIdentifier": "com.soum91.embersign",
+      "developerName": "soum91",
+      "subtitle": "Sign, customize, and manage IPAs",
+      "localizedDescription": "EmberSign signs imported IPAs using imported certificates and provisioning profiles, supports compatible tweak injection, imports and exports pairing records, and prepares development-signed apps for JIT through StikDebug or a configured SideJITServer. It does not provide direct Apple Account sign-in or create a fresh pairing record entirely on-device.",
+      "iconURL": "https://raw.githubusercontent.com/soum91/embersign/main/assets/icon.png",
+      "tintColor": "#F27A35",
+      "category": "utilities",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "buildVersion": "4",
+          "date": "2026-10-25",
+          "localizedDescription": "First development release with certificate and provisioning-profile signing, compatible tweak injection, pairing-record import and export, and JIT preparation with StikDebug or SideJITServer handoff.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.1.0-build.4/EmberSign.ipa",
+          "size": 14906790,
+          "minOSVersion": "16.0"
+        }
+      ],
+      "version": "0.1.0",
+      "versionDate": "2026-10-25",
+      "versionDescription": "First development release with certificate and provisioning-profile signing, compatible tweak injection, pairing-record import and export, and JIT preparation with StikDebug or SideJITServer handoff.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.1.0-build.4/EmberSign.ipa",
+      "size": 14906790
+    }
+  ],
+  "news": []
+}
