@@ -156,7 +156,7 @@ struct EmberJITView: View {
                 Text("You can also hold a signed app in Apps and choose Enable JIT. Use the installed bundle identifier after any signing changes.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            Section("On this device") {
+            Section {
                 Button { Task { await jit.openStikDebug() } } label: {
                     Label("Enable with StikDebug", systemImage: "bolt.fill")
                 }.disabled(jit.bundleID.isEmpty)
@@ -164,10 +164,12 @@ struct EmberJITView: View {
                 Button {
                     UIApplication.shared.open(URL(string: "localdevvpn://enable?scheme=embersign")!)
                 } label: { Label("Connect LocalDevVPN", systemImage: "network") }
+            } header: {
+                Text("On this device")
             } footer: {
                 Text("Import your exported pairing file into StikDebug and complete its developer-image setup. A pairing file alone does not grant JIT. On newer iOS versions, the target app may need its own compatible JIT implementation.")
             }
-            Section("SideJITServer fallback") {
+            Section {
                 TextField("http://computer-address:8080", text: $server)
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Button("Connect and find devices") { Task { await jit.discover(base: server) } }
@@ -185,6 +187,8 @@ struct EmberJITView: View {
                 Button("Request JIT from server") {
                     Task { await jit.enableOnServer(base: server, udid: device) }
                 }.disabled(jit.isBusy || jit.bundleID.isEmpty || server.isEmpty || device.isEmpty)
+            } header: {
+                Text("SideJITServer fallback")
             } footer: {
                 Text("Run SideJITServer on your trusted computer. EmberSign sends the selected device and app identifiers to the address you enter. Pairing files and signing keys are never uploaded by this feature.")
             }

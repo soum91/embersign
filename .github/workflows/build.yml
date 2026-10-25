@@ -29,13 +29,21 @@ jobs:
         run: bash scripts/bootstrap.sh
       - name: Install project generator
         run: command -v xcodegen || brew install xcodegen
-      - name: Restore Swift package downloads
-        uses: actions/cache@v4
+      - name: Restore compiled dependencies
+        id: build-cache
+        uses: actions/cache/restore@v4
         with:
-          path: build/DerivedData/SourcePackages
-          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-spm-${{ hashFiles('upstream.lock.json') }}
+          path: build/DerivedData
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml') }}
       - name: Build and package IPA
         run: bash scripts/build.sh
+      - name: Preserve compiled dependencies
+        if: always() && steps.build-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: build/DerivedData
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml') }}
       - name: Bundle complete source with licenses
         run: |
           cp README.md upstream/EMBERSIGN-README.md
