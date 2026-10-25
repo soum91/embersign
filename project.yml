@@ -26,7 +26,7 @@ packages:
     exactVersion: 4.8.7
   Vapor:
     url: https://github.com/vapor/vapor
-    exactVersion: 4.104.0
+    exactVersion: 4.122.3
   Nuke:
     url: https://github.com/kean/Nuke
     exactVersion: 12.8.0
