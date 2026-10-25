@@ -1,7 +1,7 @@
 name: Feather
 options:
   deploymentTarget:
-    iOS: "16.0"
+    iOS: '16.0'
   createIntermediateGroups: true
 configs:
   Debug: debug
@@ -38,62 +38,106 @@ targets:
     type: application
     platform: iOS
     sources:
-      - path: Feather
-        excludes: [Resources]
-      - path: Feather/Resources
-        buildPhase: resources
-        excludes: [Info.plist]
+    - path: Feather
+      excludes:
+      - Resources
+    - path: Feather/Resources
+      buildPhase: resources
+      excludes:
+      - Info.plist
+    - path: Shared
     settings:
       base:
         PRODUCT_NAME: Feather
         PRODUCT_BUNDLE_IDENTIFIER: $(FEATHER_PRODUCT_BUNDLE_IDENTIFIER)
         INFOPLIST_FILE: Feather/Resources/Info.plist
-        GENERATE_INFOPLIST_FILE: YES
+        GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_CFBundleDisplayName: EmberSign
         INFOPLIST_KEY_UILaunchStoryboardName: Launch Screen.storyboard
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-        INFOPLIST_KEY_UISupportsDocumentBrowser: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
+        INFOPLIST_KEY_UISupportsDocumentBrowser: true
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
-        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait
+          UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft
+          UIInterfaceOrientationLandscapeRight
+        TARGETED_DEVICE_FAMILY: 1,2
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        SWIFT_VERSION: "5.0"
+        SWIFT_VERSION: '5.0'
         SWIFT_OBJC_BRIDGING_HEADER: Feather/Supporting Files/Feather-Bridging-Header.h
         CODE_SIGN_ENTITLEMENTS: Feather/Supporting Files/Feather.entitlements
         CODE_SIGN_STYLE: Manual
-        CODE_SIGN_IDENTITY: ""
-        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_IDENTITY: ''
+        DEVELOPMENT_TEAM: ''
         MARKETING_VERSION: $(FEATHER_PROJECT_VERSION)
-        CURRENT_PROJECT_VERSION: "1"
-        SKIP_INSTALL: NO
-        SUPPORTS_MACCATALYST: NO
-        ENABLE_USER_SCRIPT_SANDBOXING: NO
-        SWIFT_EMIT_LOC_STRINGS: NO
+        CURRENT_PROJECT_VERSION: '1'
+        SKIP_INSTALL: false
+        SUPPORTS_MACCATALYST: false
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+        SWIFT_EMIT_LOC_STRINGS: false
         LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/Frameworks
     dependencies:
-      - package: NimbleKit
-        product: NimbleExtensions
-      - package: NimbleKit
-        product: NimbleJSON
-      - package: NimbleKit
-        product: NimbleViews
-      - package: AltSourceKit
-        product: AltSourceKit
-      - package: Zsign
-        product: Zsign
-      - package: IDeviceKit
-        product: IDeviceSwift
-      - package: Zip
-        product: Zip
-      - package: SWCompression
-        product: SWCompression
-      - package: Vapor
-        product: Vapor
-      - package: Nuke
-        product: NukeUI
-      - package: SideSign
-        product: SideSign
+    - package: NimbleKit
+      product: NimbleExtensions
+    - package: NimbleKit
+      product: NimbleJSON
+    - package: NimbleKit
+      product: NimbleViews
+    - package: AltSourceKit
+      product: AltSourceKit
+    - package: Zsign
+      product: Zsign
+    - package: IDeviceKit
+      product: IDeviceSwift
+    - package: Zip
+      product: Zip
+    - package: SWCompression
+      product: SWCompression
+    - package: Vapor
+      product: Vapor
+    - package: Nuke
+      product: NukeUI
+    - package: SideSign
+      product: SideSign
+    - target: EmberSignWidget
+    entitlements:
+      path: Feather/Supporting Files/Feather.entitlements
+      properties:
+        get-task-allow: true
+        com.apple.security.application-groups:
+        - group.com.soum91.embersign
+  EmberSignWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: '17.0'
+    sources:
+    - path: EmberSignWidget
+    - path: Shared
+    info:
+      path: EmberSignWidget/Info.plist
+      properties:
+        CFBundleDisplayName: EmberSign
+        CFBundleShortVersionString: $(FEATHER_PROJECT_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: EmberSignWidget/EmberSignWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+        - group.com.soum91.embersign
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.soum91.embersign.widget
+        MARKETING_VERSION: $(FEATHER_PROJECT_VERSION)
+        CURRENT_PROJECT_VERSION: '1'
+        SWIFT_VERSION: '5.0'
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WIDGET_EXTENSION
+        SKIP_INSTALL: true
+        GENERATE_INFOPLIST_FILE: false
+        TARGETED_DEVICE_FAMILY: 1,2
+        CODE_SIGNING_ALLOWED: false
+        CODE_SIGN_IDENTITY: ''
 schemes:
   Feather:
     build:

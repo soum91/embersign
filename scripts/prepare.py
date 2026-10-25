@@ -185,6 +185,16 @@ extension SigningView {
         content = content.replace('?? "#848ef9"', '?? "#F27A35"')
         swift.write_text(content)
 
+    replace_once(main, "import SwiftUI", "import SwiftUI\nimport CoreData")
+    replace_once(main, "    @StateObject private var emberJIT = EmberJITService.shared", "    @StateObject private var emberJIT = EmberJITService.shared\n    @StateObject private var emberQuickRouter = EmberQuickRouter.shared")
+    replace_once(main, "            .sheet(isPresented: $emberJIT.showAppSheet) {", """            .onAppear { EmberWidgetSync.refresh() }
+            .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in EmberWidgetSync.refresh() }
+            .sheet(item: $emberQuickRouter.destination) { destination in
+                EmberQuickSheet(destination: destination)
+                    .environment(\\.managedObjectContext, storage.context)
+            }
+            .sheet(isPresented: $emberJIT.showAppSheet) {""")
+
     project = destination / "Feather.xcodeproj/project.pbxproj"
     content = project.read_text().replace('INFOPLIST_KEY_CFBundleDisplayName = Feather;', 'INFOPLIST_KEY_CFBundleDisplayName = EmberSign;')
     # Alternate inherited team values must not affect this application's signing identity.
@@ -207,8 +217,8 @@ DSTROOT = $(SRCROOT)/_build/
     plist["UIBackgroundModes"] = ["fetch"]
     ats = plist.setdefault("NSAppTransportSecurity", {})
     ats["NSAllowsLocalNetworking"] = True
-    # SideJITServer normally serves HTTP on a user-entered LAN IP address.
-    ats["NSAllowsArbitraryLoads"] = True
+    # Local services retain their scoped exception; do not disable global ATS.
+    ats.pop("NSAllowsArbitraryLoads", None)
     plist["CFBundleDocumentTypes"].append({
         "CFBundleTypeName": "Device pairing file", "CFBundleTypeRole": "Viewer",
         "LSHandlerRank": "Alternate", "LSItemContentTypes": ["com.soum91.embersign.pairing"]
