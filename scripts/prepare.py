@@ -67,6 +67,97 @@ def prepare(destination):
     old_tabs = app / "Views/TabView/Bars/TabbarView.swift"
     replace_once(old_tabs, 'selectedTab: TabEnum = .sources', 'selectedTab: TabEnum = .library')
 
+    # Feather already parses AltStore/FlareStore JSON feeds and downloads IPAs.
+    # Make GitHub repository and blob URLs first-class entry points into that flow.
+    source_add = app / "Views/Sources/SourcesAddView.swift"
+    replace_once(source_add, '"https://raw.githubusercontent.com/claration/Feather/refs/heads/main/app-repo.json",',
+                 '"https://raw.githubusercontent.com/soum91/embersign/main/source.json",\n\t\t"https://raw.githubusercontent.com/claration/Feather/refs/heads/main/app-repo.json",')
+    replace_once(source_add, '@State private var _sourceURL = ""',
+                 '@State private var _sourceURL = ""\n\t@State private var _githubError: String?')
+    replace_once(source_add, 'TextField(.localized("Enter Source URL"), text: $_sourceURL)',
+                 'TextField("GitHub repository or source.json URL", text: $_sourceURL)')
+    replace_once(source_add, 'Text(.localized("The only supported repositories are AltStore repositories."))',
+                 '''Text("Add a public GitHub repository, a GitHub JSON file, or an AltStore/FlareStore-compatible source URL. Apps download into the Apps library for signing and installation.")
+                    if let _githubError { Text(_githubError).foregroundStyle(.red) }''')
+    replace_once(source_add, '''FR.handleSource(_sourceURL) {
+\t\t\t\t\t\t\tdismiss()
+\t\t\t\t\t\t}''', '''_isImporting = true
+                    _githubError = nil
+                    Task {
+                        do {
+                            let resolved = try await EmberGitHubSource.resolve(_sourceURL)
+                            await MainActor.run {
+                                FR.handleSource(resolved) { dismiss() }
+                                _isImporting = false
+                            }
+                        } catch {
+                            await MainActor.run {
+                                _githubError = error.localizedDescription
+                                _isImporting = false
+                            }
+                        }
+                    }''')
+    source_add.write_text(source_add.read_text() + '''
+
+// Resolve GitHub links to an actual public feed. Never treat GitHub's HTML page as JSON.
+private enum EmberGitHubSource {
+    enum Failure: LocalizedError {
+        case invalidGitHubURL, missingFeed
+        var errorDescription: String? {
+            switch self {
+            case .invalidGitHubURL: return "Use a GitHub repository link or a JSON file link."
+            case .missingFeed: return "No public AltStore-compatible JSON feed found (source.json, apps.json, app-repo.json, or AltStore.json)."
+            }
+        }
+    }
+
+    static func resolve(_ input: String) async throws -> String {
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: value), let host = url.host?.lowercased() else {
+            throw Failure.invalidGitHubURL
+        }
+        guard host == "github.com" || host == "www.github.com" else {
+            return value // The existing source importer handles regular JSON URLs.
+        }
+        let path = url.pathComponents.filter { $0 != "/" }
+        guard path.count >= 2 else { throw Failure.invalidGitHubURL }
+        let owner = path[0], repo = path[1]
+        guard owner.range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil,
+              repo.range(of: "^[A-Za-z0-9_.-]+$", options: .regularExpression) != nil else {
+            throw Failure.invalidGitHubURL
+        }
+        if path.count >= 5 && (path[2] == "blob" || path[2] == "raw") {
+            let branch = path[3]
+            let file = path.dropFirst(4).joined(separator: "/")
+            return "https://raw.githubusercontent.com/\\(owner)/\\(repo)/\\(branch)/\\(file)"
+        }
+        guard path.count == 2 else { throw Failure.invalidGitHubURL }
+        let metadataURL = URL(string: "https://api.github.com/repos/\\(owner)/\\(repo)")!
+        var request = URLRequest(url: metadataURL)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let metadata = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let branch = metadata["default_branch"] as? String else {
+            throw Failure.missingFeed // Private repositories need authenticated access.
+        }
+        for name in ["source.json", "apps.json", "app-repo.json", "AltStore.json"] {
+            let candidate = URL(string: "https://raw.githubusercontent.com/\\(owner)/\\(repo)/\\(branch)/\\(name)")!
+            var probe = URLRequest(url: candidate)
+            probe.timeoutInterval = 15
+            if let (body, reply) = try? await URLSession.shared.data(for: probe),
+               (reply as? HTTPURLResponse)?.statusCode == 200,
+               let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+               json["apps"] is [[String: Any]] {
+                return candidate.absoluteString
+            }
+        }
+        throw Failure.missingFeed
+    }
+}
+''')
+
     settings = app / "Views/Settings/SettingsView.swift"
     replace_once(settings, 'private let _githubUrl = "https://github.com/claration/Feather"', 'private let _githubUrl = "https://github.com/soum91/embersign"')
     replace_once(settings, '\t\t\t\t#if !NIGHTLY && !DEBUG\n\t\t\t\t\tSettingsDonationCellView(site: _donationsUrl)\n\t\t\t\t#endif', '''                Section("EmberSign") {
