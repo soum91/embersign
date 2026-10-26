@@ -15,12 +15,12 @@ public enum EmberTargetLauncher {
     /// but never guess if more than one installed app matches that prefix.
     private static func installedTarget(_ requested: String, service: OpaquePointer) throws -> InstalledTarget {
         var entries: UnsafeMutablePointer<AppListEntryC>?
-        var count = 0
+        var count: UInt = 0
         try IdeviceFFI.check("failed to read installed bundle identifiers") {
             app_service_list_apps(service, 1, 1, 1, 0, 0, &entries, &count)
         }
         defer { if let entries { app_service_free_app_list(entries, count) } }
-        let apps: [InstalledTarget] = (0..<count).compactMap { index in
+        let apps: [InstalledTarget] = (0..<Int(count)).compactMap { index in
             guard let entry = entries?[index], let id = entry.bundle_identifier,
                   let path = entry.path else { return nil }
             return InstalledTarget(bundleID: String(cString: id), containerPath: String(cString: path))
@@ -46,14 +46,14 @@ public enum EmberTargetLauncher {
     /// The device's AppService process inventory provides a separate, trusted PID.
     private static func runningPID(for target: InstalledTarget, service: OpaquePointer) throws -> Int32? {
         var processes: UnsafeMutablePointer<ProcessTokenC>?
-        var count = 0
+        var count: UInt = 0
         try IdeviceFFI.check("failed to read running application processes") {
             app_service_list_processes(service, &processes, &count)
         }
         defer { if let processes { app_service_free_process_list(processes, count) } }
         let appPath = normalizedPath(target.containerPath).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !appPath.isEmpty else { return nil }
-        for index in 0..<count {
+        for index in 0..<Int(count) {
             guard let process = processes?[index], process.pid > 0,
                   process.pid <= UInt32(Int32.max),
                   let executableURL = process.executable_url else { continue }
