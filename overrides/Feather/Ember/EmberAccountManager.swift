@@ -1,7 +1,18 @@
 import Foundation
 import Security
+import AnisetteKit
 import SideSign
 import UIKit
+
+private struct EmberAnisetteServerIdentity: Decodable {
+    let clientInfo: String
+    let userAgent: String
+
+    enum CodingKeys: String, CodingKey {
+        case clientInfo = "client_info"
+        case userAgent = "user_agent"
+    }
+}
 
 struct EmberStoredAccount: Codable, Identifiable, Equatable {
     var id: String { auth.account.appleID.lowercased() }
@@ -38,6 +49,7 @@ enum EmberAccountStoreError: LocalizedError {
     case missingPairingUDID
     case keychain(OSStatus)
     case invalidAnisetteURL
+    case anisetteIdentityUnavailable
     case cancelled
 
     var errorDescription: String? {
@@ -47,6 +59,7 @@ enum EmberAccountStoreError: LocalizedError {
         case .missingPairingUDID: return "Import a Lockdown pairing file containing this device's UDID before provisioning."
         case .keychain(let status): return "Keychain operation failed (\(status))."
         case .invalidAnisetteURL: return "The Anisette server address is invalid."
+        case .anisetteIdentityUnavailable: return "This Anisette server did not provide a usable /v3/client_info identity. Select a compatible Mac Anisette server and try again."
         case .cancelled: return "Sign-in was cancelled."
         }
     }
@@ -55,6 +68,8 @@ enum EmberAccountStoreError: LocalizedError {
 @MainActor
 final class EmberAccountManager: ObservableObject {
     static let shared = EmberAccountManager()
+    static let recommendedAnisetteServer = "https://mac-ani.jkcoxson.com"
+    private static let previousDefaultAnisetteServer = "https://ani.sidestore.io"
 
     @Published private(set) var accounts: [EmberStoredAccount] = []
     @Published private(set) var inventories: [String: EmberAccountInventory] = [:]
@@ -63,7 +78,12 @@ final class EmberAccountManager: ObservableObject {
     @Published var status = "Add an Apple Account to provision free or paid development signing."
     @Published var twoFactorChallenge: EmberTwoFactorChallenge?
 
-    @Published var anisetteServer = UserDefaults.standard.string(forKey: "EmberSign.anisetteServer") ?? "https://ani.sidestore.io"
+    @Published var anisetteServer: String = {
+        let saved = UserDefaults.standard.string(forKey: "EmberSign.anisetteServer")
+        // Migrate only the old built-in default. Preserve the user's custom server.
+        return saved == nil || saved == EmberAccountManager.previousDefaultAnisetteServer
+            ? EmberAccountManager.recommendedAnisetteServer : saved!
+    }()
 
     private let portal = DeveloperPortal.shared
     private var twoFactorContinuation: CheckedContinuation<TwoFactorResponse, Error>?
@@ -84,12 +104,36 @@ final class EmberAccountManager: ObservableObject {
         UserDefaults.standard.set(id, forKey: "EmberSign.selectedAccount")
     }
 
+    func useRecommendedAnisetteServer() {
+        anisetteServer = Self.recommendedAnisetteServer
+        UserDefaults.standard.set(anisetteServer, forKey: "EmberSign.anisetteServer")
+        status = "Mac Anisette selected. Sign in to request a fresh Apple verification challenge."
+    }
+
+    func resetCurrentAnisetteIdentity() {
+        guard !isBusy else { return }
+        guard let server = URL(string: anisetteServer.trimmingCharacters(in: .whitespacesAndNewlines)),
+              server.host != nil else {
+            status = EmberAccountStoreError.invalidAnisetteURL.localizedDescription
+            return
+        }
+        do {
+            try deleteKeychain(service: anisetteService, account: anisetteBlobKey(for: server))
+            UserDefaults.standard.removeObject(forKey: anisetteIdentifierKey(for: server))
+            status = "Anisette identity reset for this server. Apple Accounts and pairing files were kept."
+        } catch {
+            EmberErrorCenter.shared.record(error, operation: "Reset Anisette identity")
+            status = error.localizedDescription
+        }
+    }
+
     func login(appleID: String, password: String) async {
         guard !appleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !password.isEmpty else {
             status = "Enter your Apple Account email and password."
             return
         }
-        guard let server = URL(string: anisetteServer), server.scheme != nil else {
+        guard let server = URL(string: anisetteServer.trimmingCharacters(in: .whitespacesAndNewlines)),
+              ["https", "http"].contains(server.scheme?.lowercased() ?? ""), server.host != nil else {
             status = EmberAccountStoreError.invalidAnisetteURL.localizedDescription
             return
         }
@@ -97,23 +141,37 @@ final class EmberAccountManager: ObservableObject {
         status = "Requesting Anisette data..."
         UserDefaults.standard.set(anisetteServer, forKey: "EmberSign.anisetteServer")
         do {
-            let deviceID = persistentAnisetteIdentifier()
-            let existingBlob = try? readKeychain(service: anisetteService, account: "adi.pb")
+            status = "Checking Anisette device identity..."
+            let identity = try await fetchServerIdentity(from: server)
+            var headers = AnisetteRequestHeaders()
+            headers.clientInfo = identity.clientInfo
+            headers.userAgent = identity.userAgent
+
+            let deviceID = persistentAnisetteIdentifier(for: server)
+            let blobKey = anisetteBlobKey(for: server)
+            let existingBlob = try? readKeychain(service: anisetteService, account: blobKey)
+            status = "Requesting Anisette data..."
             let manager = AnisetteDataManager(mode: .remote(server: server))
-            let result = try await manager.fetchAnisetteData(identifier: deviceID, existingAdiBlob: existingBlob)
-            if let blob = result.newAdiBlob { try saveKeychain(blob, service: anisetteService, account: "adi.pb") }
+            let result = try await manager.fetchAnisetteData(identifier: deviceID, existingAdiBlob: existingBlob, headers: headers)
+            if let blob = result.newAdiBlob { try saveKeychain(blob, service: anisetteService, account: blobKey) }
+
+            // SideSign's default GrandSlam user agent describes Xcode on a newer Mac.
+            // Use the user agent advertised by the server that actually made the ADI data.
+            var authHeaders = SideSignHeaders()
+            authHeaders.grandSlam.userAgent = identity.userAgent
+            let loginPortal = DeveloperPortal(customHeaders: authHeaders)
             status = "Authenticating with Apple..."
-            let auth = try await portal.authenticate(
+            let auth = try await loginPortal.authenticate(
                 appleID: appleID,
                 password: password,
                 anisetteData: result.data,
-                xcodeVersion: "16.4",
+                xcodeVersion: "26.0",
                 verificationHandler: { [weak self] request in
                     guard let self else { throw EmberAccountStoreError.cancelled }
                     return try await self.requestTwoFactor(request)
                 }
             )
-            let teams = try await portal.fetchTeams(for: auth.account, session: auth.session)
+            let teams = try await loginPortal.fetchTeams(for: auth.account, session: auth.session)
             guard let team = teams.first else { throw EmberAccountStoreError.missingTeam }
             let stored = EmberStoredAccount(auth: auth, teams: teams, selectedTeamID: team.identifier)
             try persist(stored)
@@ -123,7 +181,14 @@ final class EmberAccountManager: ObservableObject {
             await refresh(accountID: stored.id)
         } catch {
             EmberErrorCenter.shared.record(error, operation: "Apple Account sign-in")
-            status = error.localizedDescription
+            let message = error.localizedDescription
+            if message.contains("80045") {
+                status = "Apple rejected the device identity before 2FA (-80045). Use Mac Anisette, reset its identity, and try again later. Repeated attempts may temporarily lock sign-in."
+            } else if message.contains("80046") {
+                status = "Apple refused the developer app-token step (-80046). Check the Anisette server identity and try a Mac Anisette service."
+            } else {
+                status = message
+            }
         }
         isBusy = false
     }
@@ -141,6 +206,7 @@ final class EmberAccountManager: ObservableObject {
 
     private func requestTwoFactor(_ request: TwoFactorRequest) async throws -> TwoFactorResponse {
         try await withCheckedThrowingContinuation { continuation in
+            status = "Apple requested two-factor authentication. Choose a delivery method or enter the code below."
             twoFactorContinuation = continuation
             twoFactorChallenge = EmberTwoFactorChallenge(request: request)
         }
@@ -383,11 +449,39 @@ final class EmberAccountManager: ObservableObject {
         return (result as? [Data] ?? []).compactMap { try? decoder.decode(EmberStoredAccount.self, from: $0) }
     }
 
-    private func persistentAnisetteIdentifier() -> UUID {
-        if let raw = UserDefaults.standard.string(forKey: "EmberSign.anisetteIdentifier"), let id = UUID(uuidString: raw) { return id }
+    private func anisetteScope(for server: URL) -> String {
+        server.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+    }
+
+    private func anisetteIdentifierKey(for server: URL) -> String {
+        "EmberSign.anisetteIdentifier.\(anisetteScope(for: server))"
+    }
+
+    private func anisetteBlobKey(for server: URL) -> String {
+        "adi.pb.\(anisetteScope(for: server))"
+    }
+
+    private func persistentAnisetteIdentifier(for server: URL) -> UUID {
+        let key = anisetteIdentifierKey(for: server)
+        if let raw = UserDefaults.standard.string(forKey: key), let id = UUID(uuidString: raw) { return id }
         let id = UUID()
-        UserDefaults.standard.set(id.uuidString, forKey: "EmberSign.anisetteIdentifier")
+        UserDefaults.standard.set(id.uuidString, forKey: key)
         return id
+    }
+
+    private func fetchServerIdentity(from server: URL) async throws -> EmberAnisetteServerIdentity {
+        let identityURL = server.appendingPathComponent("v3/client_info")
+        var request = URLRequest(url: identityURL)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 15
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let identity = try? JSONDecoder().decode(EmberAnisetteServerIdentity.self, from: data),
+              !identity.clientInfo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !identity.userAgent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw EmberAccountStoreError.anisetteIdentityUnavailable
+        }
+        return identity
     }
 
     private func saveKeychain(_ data: Data, service: String, account: String) throws {

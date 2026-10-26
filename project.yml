@@ -33,6 +33,9 @@ packages:
   SideSign:
     url: https://github.com/SideStore/SideSign.git
     revision: 752d1ef602aa792a432ffa1e71646dc1ecf7363c
+  AnisetteKit:
+    url: https://github.com/mahee96/AnisetteKit.git
+    branch: main
 targets:
   Feather:
     type: application
@@ -99,6 +102,8 @@ targets:
       product: NukeUI
     - package: SideSign
       product: SideSign
+    - package: AnisetteKit
+      product: AnisetteKit
     - target: EmberSignWidget
     entitlements:
       path: Feather/Supporting Files/Feather.entitlements

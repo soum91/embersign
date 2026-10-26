@@ -45,9 +45,14 @@ struct EmberAccountsView: View {
             }
 
             Section("Anisette") {
+                Button("Use Mac Anisette (recommended)") { manager.useRecommendedAnisetteServer() }
+                    .disabled(manager.isBusy)
                 TextField("Server URL", text: $manager.anisetteServer)
                     .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                Text("Apple Account authentication depends on Anisette data. The default uses SideStore's public service; you can enter your own compatible server.")
+                    .disabled(manager.isBusy)
+                Button("Reset Anisette identity for this server") { manager.resetCurrentAnisetteIdentity() }
+                    .disabled(manager.isBusy)
+                Text("Apple requires the Anisette data and claimed device to match. EmberSign reads the selected server's identity and keeps its provisioning data separate from other servers. Reset does not remove saved Apple Accounts or pairing files. Third-party Anisette servers can be unavailable; use only servers you trust.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
 
