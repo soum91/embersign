@@ -65,7 +65,7 @@ struct EmberToolsView: View {
                 Section("Compatibility") {
                     Text("Apple Account provisioning uses SideSign and Anisette. Passwords are never saved. Sessions and generated keys stay in this device's Keychain.")
                     Text("JIT preparation requires a development provisioning profile. Activation uses StikDebug on supported devices or your own SideJITServer. Newer iOS versions can require app-specific JIT support.")
-                    Text("An exported pairing file is a copy of your imported record. Initial pairing normally uses a trusted computer. Lockdown and remote-pairing files are different formats; the receiving app must support the format you export.")
+                    Text("On iOS 27, you can generate a remote-pairing file in EmberSign through Developer Mode. Other versions generally require a trusted computer for the first pairing. Lockdown and remote pairing are distinct formats.")
                     Text("Tweaks run inside the signed app. Tweaks that depend on jailbreak services or system-wide hooks will not work.")
                 }.font(.footnote).foregroundStyle(.secondary)
             }
@@ -75,6 +75,7 @@ struct EmberToolsView: View {
 }
 
 struct EmberPairingView: View {
+    @ObservedObject private var selfPairing = EmberOnDevicePairing.shared
     @State private var record: EmberPairingRecord?
     @State private var importing = false
     @State private var exporting = false
@@ -82,6 +83,7 @@ struct EmberPairingView: View {
     @State private var document: EmberPairingDocument?
     @State private var message: String?
     @State private var checking = false
+    @State private var confirmReplace = false
 
     var body: some View {
         List {
@@ -91,6 +93,48 @@ struct EmberPairingView: View {
                 if let record {
                     LabeledContent("Format", value: record.kind.rawValue)
                     Text("File structure checked. Device trust is confirmed only by a successful connection.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            Section("Generate on this iPhone") {
+                if EmberOnDevicePairing.supported {
+                    Button {
+                        if record == nil { selfPairing.start() }
+                        else { confirmReplace = true }
+                    } label: {
+                        Label("Start on-device pairing", systemImage: "iphone.gen3.radiowaves.left.and.right")
+                    }.disabled(selfPairing.active)
+
+                    switch selfPairing.phase {
+                    case .idle:
+                        Text("Works on iOS 27. You will approve a new remote pairing in iPhone Settings.")
+                            .foregroundStyle(.secondary)
+                    case .waiting:
+                        HStack {
+                            ProgressView()
+                            Text("Waiting for Developer Mode pairing…")
+                        }
+                    case .enterPIN(let code):
+                        LabeledContent("Pairing code", value: code)
+                            .font(.headline.monospacedDigit())
+                        Text("Enter this code on the same iPhone in Developer Mode Settings.")
+                    case .paired(let name):
+                        Label("Paired with \(name). You can export the new record.", systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(.green)
+                    case .failed(let reason):
+                        Text(reason).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    if selfPairing.active {
+                        Button("Cancel pairing", role: .cancel) { selfPairing.stop() }
+                    }
+                    if selfPairing.limitedBackgroundTime && selfPairing.active {
+                        Text("iOS did not allow extended background processing. Open Developer Mode promptly; pairing may stop when EmberSign is suspended.")
+                            .foregroundStyle(.orange)
+                    }
+                    Text("After Start, open Settings > Privacy & Security > Developer Mode > Pair with EmberSign. Enter the six-digit code in EmberSign's notification or background task banner. Return here to export the saved remote pairing file.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("On-device pairing requires iOS 27 or newer. On this iOS version, create the initial pairing file with iLoader or another trusted computer tool and import it below.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -118,7 +162,7 @@ struct EmberPairingView: View {
                 Text("Export to Files, then import that file in Reynard or another compatible app. The record contains private device-trust credentials; share it only with apps you trust. The socket check applies to Lockdown tunnels; validate remote pairing in your JIT tool.")
             }
             Section("First-time setup") {
-                Text("Pair your phone using iLoader or another trusted pairing tool on your computer. Import the resulting .mobiledevicepairing or .plist file here. EmberSign cannot extract credentials from another app's private storage.")
+                Text("On iOS versions before 27, pair using iLoader or another trusted computer tool. Import its .mobiledevicepairing or .plist file here. EmberSign cannot extract another app's private pairing credentials.")
                 Link("Open pairing setup guide", destination: URL(string: "https://docs.sidestore.io/docs/advanced/pairing-file")!)
             }.font(.footnote)
             if let message { Section("Result") { Text(message).textSelection(.enabled) } }
@@ -149,8 +193,16 @@ struct EmberPairingView: View {
                 } catch { message = error.localizedDescription }
             }
         }
+        .confirmationDialog("Replace the saved pairing file?", isPresented: $confirmReplace, titleVisibility: .visible) {
+            Button("Start new pairing") { selfPairing.start() }
+        } message: {
+            Text("A newly paired host can replace an older remote trust record. EmberSign preserves your current file until the new pairing succeeds, but the old remote pairing may then stop working.")
+        }
         .onAppear(perform: reload)
         .onReceive(NotificationCenter.default.publisher(for: .emberPairingChanged)) { _ in reload() }
+        .onReceive(selfPairing.$phase) { phase in
+            if case .paired = phase { reload() }
+        }
     }
 
     private func reload() { record = try? EmberPairingStore.read() }

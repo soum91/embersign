@@ -15,7 +15,19 @@ enum EmberPairingStore {
         defer { if accessing { source.stopAccessingSecurityScopedResource() } }
         let size = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard size <= 4 * 1024 * 1024 else { throw EmberError.message("The pairing file is too large.") }
-        let record = try EmberPairingRecord(data: Data(contentsOf: source))
+        try save(Data(contentsOf: source))
+    }
+
+    static func saveGeneratedRemote(_ data: Data) throws {
+        let record = try EmberPairingRecord(data: data)
+        guard record.kind == .remote else {
+            throw EmberError.message("The on-device pairing service did not return a remote-pairing record.")
+        }
+        try save(data)
+    }
+
+    private static func save(_ data: Data) throws {
+        let record = try EmberPairingRecord(data: data)
         // Validate first, then replace atomically. A bad import cannot erase a working record.
         try record.data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

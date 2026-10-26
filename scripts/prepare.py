@@ -214,7 +214,9 @@ DSTROOT = $(SRCROOT)/_build/
         entry["CFBundleURLSchemes"] = ["embersign"]
     plist["LSApplicationQueriesSchemes"] = ["localdevvpn", "stikdebug"]
     plist["NSLocalNetworkUsageDescription"] = "Connect to your trusted pairing tunnel or JIT server to install and debug your apps."
-    plist["UIBackgroundModes"] = ["fetch"]
+    plist["NSBonjourServices"] = ["_remotepairing-pairable-host._tcp"]
+    plist["BGTaskSchedulerPermittedIdentifiers"] = ["$(PRODUCT_BUNDLE_IDENTIFIER).pairing.*"]
+    plist["UIBackgroundModes"] = ["fetch", "processing"]
     ats = plist.setdefault("NSAppTransportSecurity", {})
     ats["NSAllowsLocalNetworking"] = True
     # Local services retain their scoped exception; do not disable global ATS.

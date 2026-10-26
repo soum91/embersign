@@ -15,3 +15,5 @@ Feather dependencies include Zsign, IDeviceKit/idevice, NimbleKit, AltSourceKit,
 Apple Account authentication and provisioning use SideSign from the SideStore project at revision `752d1ef602aa792a432ffa1e71646dc1ecf7363c`, licensed under GPL-3.0. SideSign includes CodeSignKit, GSACryptoKit, AnisetteKit, swift-crypto, and libdeflate dependencies whose respective licenses continue to apply.
 
 StikDebug and SideJITServer are separate programs. EmberSign invokes their documented interfaces; they are not bundled or represented as EmberSign's own JIT engine.
+
+On-device remote pairing for iOS 27 uses a new MIT-licensed Rust wrapper in `pairing-native/` and the MIT-licensed `jkcoxson/idevice` crate (version 0.1.68). EmberSign bundles the resulting static library, and its corresponding Rust and C source is included with source releases. Other crates retain their own permissive licenses. The native pairing capability is independent of StikDebug, which remains a separate application.

@@ -1,0 +1,18 @@
+[package]
+name = "embersign_pairing"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+idevice = { version = "=0.1.68", default-features = false, features = ["remote_pairing", "ring"] }
+tokio = { version = "1", features = ["rt", "net", "sync", "macros", "time"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

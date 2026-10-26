@@ -1,0 +1,4 @@
+module EmberPairingNative {
+  header "EmberPairingNative.h"
+  export *
+}

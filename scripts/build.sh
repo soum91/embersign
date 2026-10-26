@@ -10,6 +10,7 @@ cp "$TASK_ROOT/project.yml" "$TASK_UPSTREAM/EmberSign.project.yml"
 # Generate explicit, unique package-product links instead of the inherited duplicates.
 xcodegen generate --spec EmberSign.project.yml
 make deps
+bash "$TASK_ROOT/scripts/build_pairing.sh"
 xcodebuild -project Feather.xcodeproj -scheme Feather -configuration Release \
   -destination 'generic/platform=iOS' -derivedDataPath "$TASK_ROOT/build/DerivedData" \
   -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO \
