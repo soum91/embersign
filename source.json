@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.0.16",
+          "buildVersion": "16",
+          "date": "2026-10-26",
+          "localizedDescription": "EmberSign 0.2.0 build 16: Apple Accounts, signing and provisioning, paired-device app inventory, quota estimates, refresh controls, JIT tools, and diagnostics.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.0-build.16/EmberSign.ipa",
+          "size": 21790870,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.0.14",
           "buildVersion": "14",
           "date": "2026-10-26",
@@ -64,11 +73,11 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.0.14",
+      "version": "0.2.0.16",
       "versionDate": "2026-10-26",
-      "versionDescription": "EmberSign 0.2.0 build 14: Apple Accounts, signing and provisioning, paired-device app inventory, quota estimates, refresh controls, JIT tools, and diagnostics.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.0-build.14/EmberSign.ipa",
-      "size": 19564321
+      "versionDescription": "EmberSign 0.2.0 build 16: Apple Accounts, signing and provisioning, paired-device app inventory, quota estimates, refresh controls, JIT tools, and diagnostics.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.0-build.16/EmberSign.ipa",
+      "size": 21790870
     }
   ],
   "news": []
