@@ -64,7 +64,7 @@ struct EmberToolsView: View {
                 }
                 Section("Compatibility") {
                     Text("Apple Account provisioning uses SideSign and Anisette. Passwords are never saved. Sessions and generated keys stay in this device's Keychain.")
-                    Text("JIT preparation requires a development provisioning profile. Activation uses StikDebug on supported devices or your own SideJITServer. Newer iOS versions can require app-specific JIT support.")
+                    Text("Prepare the target app with a development provisioning profile. EmberSign can activate JIT on device with its built-in StikJIT debugger. StikDebug and SideJITServer remain fallback options. On newer iOS, the target app must support the compatible JIT memory protocol.")
                     Text("On iOS 27, you can generate a remote-pairing file in EmberSign through Developer Mode. Other versions generally require a trusted computer for the first pairing. Lockdown and remote pairing are distinct formats.")
                     Text("Tweaks run inside the signed app. Tweaks that depend on jailbreak services or system-wide hooks will not work.")
                 }.font(.footnote).foregroundStyle(.secondary)
@@ -236,6 +236,27 @@ struct EmberJITView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section {
+                Button {
+                    Task { await jit.enableBuiltIn() }
+                } label: {
+                    HStack {
+                        Label("Enable JIT in EmberSign", systemImage: "bolt.circle.fill")
+                        if jit.isBusy { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(!jit.builtInSupported || jit.isBusy || jit.bundleID.isEmpty)
+                Button("Reset developer image cache") {
+                    Task { await jit.resetBuiltInDDI() }
+                }
+                .disabled(!jit.builtInSupported || jit.isBusy)
+            } header: {
+                Text("Built-in JIT")
+            } footer: {
+                Text(jit.builtInSupported
+                     ? "Requires Developer Mode, a compatible remote-pairing file and LocalDevVPN. EmberSign launches the selected app and attaches StikJIT directly. The app must be development-signed with get-task-allow. iOS 26+ may require app-specific JIT changes."
+                     : "Built-in StikJIT requires iOS 17.4 or later; StikDebug and SideJITServer remain available where supported.")
+            }
+            Section {
                 Button { Task { await jit.openStikDebug() } } label: {
                     Label("Enable with StikDebug", systemImage: "bolt.fill")
                 }.disabled(jit.bundleID.isEmpty)
@@ -244,7 +265,7 @@ struct EmberJITView: View {
                     UIApplication.shared.open(URL(string: "localdevvpn://enable?scheme=embersign")!)
                 } label: { Label("Connect LocalDevVPN", systemImage: "network") }
             } header: {
-                Text("On this device")
+                Text("StikDebug fallback")
             } footer: {
                 Text("Import your exported pairing file into StikDebug and complete its developer-image setup. A pairing file alone does not grant JIT. On newer iOS versions, the target app may need its own compatible JIT implementation.")
             }
@@ -272,7 +293,7 @@ struct EmberJITView: View {
                 Text("Run SideJITServer on your trusted computer. EmberSign sends the selected device and app identifiers to the address you enter. Pairing files and signing keys are never uploaded by this feature.")
             }
             Section("Status") {
-                if jit.isBusy { ProgressView("Contacting JIT server…") }
+                if jit.isBusy { ProgressView("JIT operation in progress…") }
                 Text(jit.status).textSelection(.enabled)
             }
             if !jit.history.isEmpty {

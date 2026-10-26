@@ -40,7 +40,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: build/DerivedData
-          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'pairing-native/**') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'pairing-native/**', 'jit-integration/**') }}
       - name: Build and package IPA
         run: bash scripts/build.sh
       - name: Preserve compiled dependencies
@@ -49,7 +49,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: build/DerivedData
-          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'pairing-native/**') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'pairing-native/**', 'jit-integration/**') }}
       - name: Prepare FlareStore feed for the packaged IPA
         run: python3 scripts/update_source.py
       - name: Bundle complete source with licenses
@@ -60,6 +60,10 @@ jobs:
           cp pairing-native/Cargo.toml pairing-native/LICENSE upstream/EmberSign-Pairing-Native/
           cp -R pairing-native/src pairing-native/include upstream/EmberSign-Pairing-Native/
           cp scripts/build_pairing.sh upstream/EmberSign-Pairing-Native/
+          mkdir -p upstream/EmberSign-StikJIT-Source
+          cp build/stikjit-source/LICENSE build/stikjit-source/README.md build/stikjit-source/project.yml upstream/EmberSign-StikJIT-Source/
+          cp -R build/stikjit-source/Sources build/stikjit-source/Resources build/stikjit-source/idevice build/stikjit-source/iokit upstream/EmberSign-StikJIT-Source/
+          cp scripts/build_stikjit.sh upstream/EmberSign-StikJIT-Source/
           tar --exclude='.git' --exclude='_build' --exclude='deps' -czf packages/EmberSign-Source.tar.gz -C upstream .
       - name: Upload build files and diagnostic log
         if: always()
@@ -80,9 +84,9 @@ jobs:
 
             Adds multiple Apple Account sessions, 2FA, on-device free/paid development provisioning, account/team quotas, certificate/App ID/profile management, paired-device app inventory, uninstall and portal cleanup, automatic re-sign/reinstall attempts, and error-code diagnostics with online issue lookup.
 
-            Also includes imported-certificate signing, IPA installation/export, tweak injection, pairing-file import/export, an experimental iOS 27 on-device remote-pairing host, JIT entitlement preparation, and StikDebug/SideJITServer activation controls.
+            Also includes imported-certificate signing, IPA installation/export, tweak injection, pairing-file import/export, experimental iOS 27 remote pairing, JIT entitlement preparation, built-in StikJIT activation and StikDebug/SideJITServer fallbacks.
 
-            Re-sign EmberSign.ipa using your current signing tool before installation. Apple Account features depend on Apple developer services and Anisette. Background refresh is best-effort and requires a reachable pairing tunnel. On-device pairing requires iOS 27 and approval in Developer Mode; its support is experimental and device testing is pending. Standalone built-in JIT activation is not implemented; actual JIT compatibility depends on iOS, hardware, provisioning, and the target app.
+            Re-sign EmberSign.ipa using your current signing tool before installation. Apple Account features depend on Apple developer services and Anisette. Background refresh is best-effort and requires a reachable pairing tunnel. On-device pairing requires iOS 27 and approval in Developer Mode; its support is experimental and device testing is pending. Built-in JIT uses StikJIT and still requires a valid remote pairing record, LocalDevVPN, compatible iOS/device, a development-signed target, and on iOS 26+ an app-compatible JIT memory protocol. It needs real-device verification.
 
             Complete engine source and original licenses are included in EmberSign-Source.tar.gz. Runtime behavior still needs device testing.
           files: |

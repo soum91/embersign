@@ -71,6 +71,7 @@ targets:
         SWIFT_INCLUDE_PATHS: $(inherited) $(SRCROOT)/../pairing-native/include
         LIBRARY_SEARCH_PATHS: $(inherited) $(SRCROOT)/../build/pairing/lib
         OTHER_LDFLAGS: $(inherited) -lembersign_pairing
+        FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/../build/stikjit
         CODE_SIGN_ENTITLEMENTS: Feather/Supporting Files/Feather.entitlements
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: ''
@@ -107,6 +108,9 @@ targets:
       product: SideSign
     - package: AnisetteKit
       product: AnisetteKit
+    - framework: ../build/stikjit/StikJIT.framework
+      embed: true
+      weak: true
     - target: EmberSignWidget
     entitlements:
       path: Feather/Supporting Files/Feather.entitlements

@@ -6,6 +6,7 @@ TASK_BUILD="${GITHUB_RUN_NUMBER:-1}"
 mkdir -p "$TASK_ROOT/packages"
 cd "$TASK_UPSTREAM"
 xcrun swift "$TASK_ROOT/scripts/make_icon.swift" "$TASK_UPSTREAM/Feather/Resources"
+bash "$TASK_ROOT/scripts/build_stikjit.sh"
 cp "$TASK_ROOT/project.yml" "$TASK_UPSTREAM/EmberSign.project.yml"
 # Generate explicit, unique package-product links instead of the inherited duplicates.
 xcodegen generate --spec EmberSign.project.yml

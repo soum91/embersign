@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import Combine
+import StikJIT
 
 @MainActor
 final class EmberJITService: ObservableObject {
@@ -33,6 +34,96 @@ final class EmberJITService: ObservableObject {
             guard opened else { throw EmberError.message("iOS could not open StikDebug.") }
             record("Activation handed to StikDebug. Check its result there; opening the app does not confirm JIT is active.")
         } catch { record(error.localizedDescription) }
+    }
+
+    var builtInSupported: Bool {
+        if #available(iOS 17.4, *) { return true }
+        return false
+    }
+
+    /// Enable JIT in another app. EmberSign is the debugger process, so the
+    /// StikJIT self-debug helper extension is unnecessary here.
+    func enableBuiltIn() async {
+        guard !isBusy else { return }
+        guard #available(iOS 17.4, *) else {
+            record("Built-in JIT requires iOS 17.4 or newer.")
+            return
+        }
+        let target = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty, target != Bundle.main.bundleIdentifier else {
+            record("Select another sideloaded app. EmberSign cannot attach to itself.")
+            return
+        }
+        let credentials: EmberPairingRecord
+        do {
+            credentials = try EmberPairingStore.read()
+            guard credentials.kind == .remote else {
+                throw EmberError.message("Built-in StikJIT requires remote pairing credentials. Generate remote pairing in Tools > Pairing file or import a compatible record.")
+            }
+        } catch { record(error.localizedDescription); return }
+
+        isBusy = true
+        record("Preparing built-in StikJIT for \(target). Connect LocalDevVPN first.")
+        let pairURL = EmberPairingStore.url
+        let outcome = await Task.detached(priority: .userInitiated) { [weak self] () -> Result<String, Error> in
+            do {
+                let root = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("EmberSign/StikJIT", isDirectory: true)
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                let paths = DDIPaths.default(in: root)
+                let readiness = StikJIT.prepareDevice(pairingFile: pairURL, paths: paths) { stage in
+                    let message: String
+                    switch stage {
+                    case .checkingReachability: message = "Checking the local device tunnel…"
+                    case .checkingDDI: message = "Checking Developer Disk Image…"
+                    case .downloadingDDI(let fraction, let details):
+                        message = "Downloading developer image \(Int(fraction * 100))%: \(details)"
+                    case .mountingDDI(let fraction): message = "Mounting developer image \(Int(fraction * 100))%"
+                    case .verifyingDDI: message = "Verifying developer image…"
+                    case .ready: message = "Device prepared for JIT."
+                    }
+                    Task { @MainActor [weak self] in self?.record(message) }
+                }
+                switch readiness {
+                case .ready: break
+                case .unreachable(let reason): throw EmberError.message("Device tunnel unavailable: \(reason). Connect LocalDevVPN and use Wi-Fi.")
+                case .preparationFailed(let reason): throw EmberError.message("Developer image setup failed: \(reason)")
+                }
+
+                let pid = try EmberTargetLauncher.launch(bundleID: target, pairingFile: pairURL)
+                Task { @MainActor [weak self] in self?.record("Device launched \(target) (PID \(pid)). Attaching debugger…") }
+                try StikJIT.enableJIT(targetPID: pid, pairingFile: pairURL, ddiPaths: paths,
+                                     script: .universal) { stage in
+                    if case .ready = stage { return }
+                } progress: { message in
+                    Task { @MainActor [weak self] in self?.record(message) }
+                }
+                return .success("StikJIT completed debugger activation for \(target) (PID \(pid)). The app must confirm JIT availability; iOS 26+ targets need compatible JIT memory handling.")
+            } catch { return .failure(error) }
+        }.value
+        isBusy = false
+        switch outcome {
+        case .success(let message): record(message)
+        case .failure(let error): record("Built-in JIT failed: \(error.localizedDescription)")
+        }
+    }
+
+    func resetBuiltInDDI() async {
+        guard #available(iOS 17.4, *), !isBusy else { return }
+        isBusy = true
+        let outcome = await Task.detached { () -> Result<String, Error> in
+            do {
+                let root = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("EmberSign/StikJIT", isDirectory: true)
+                try StikJIT.resetCachedDDI(at: DDIPaths.default(in: root))
+                return .success("Developer image cache cleared. It will download again when JIT is enabled.")
+            } catch { return .failure(error) }
+        }.value
+        isBusy = false
+        switch outcome {
+        case .success(let message): record(message)
+        case .failure(let error): record(error.localizedDescription)
+        }
     }
 
     func discover(base: String) async {
