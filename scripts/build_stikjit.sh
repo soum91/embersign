@@ -19,11 +19,16 @@ cp "$TASK_ROOT/jit-integration/EmberTargetLauncher.swift" "$TASK_SOURCE/Sources/
   xcodebuild -project StikJIT.xcodeproj -scheme StikJIT -configuration Release \
     -destination 'generic/platform=iOS' -derivedDataPath "$TASK_ROOT/build/stikjit-derived" \
     -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+    GENERATE_INFOPLIST_FILE=YES \
     > "$TASK_ROOT/packages/stikjit-xcodebuild.log" 2>&1 || {
       tail -n 140 "$TASK_ROOT/packages/stikjit-xcodebuild.log"
       exit 1
     }
 )
 test -d "$TASK_PRODUCTS/StikJIT.framework"
+test -f "$TASK_PRODUCTS/StikJIT.framework/Info.plist" || {
+  echo 'StikJIT framework lacks Info.plist; refusing to embed an invalid framework.' >&2
+  exit 1
+}
 mkdir -p "$TASK_ROOT/build/stikjit"
 cp -R "$TASK_PRODUCTS/StikJIT.framework" "$TASK_ROOT/build/stikjit/"
