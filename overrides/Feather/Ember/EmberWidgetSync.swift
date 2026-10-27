@@ -3,6 +3,7 @@ import CoreData
 import WidgetKit
 import SwiftUI
 import UniformTypeIdentifiers
+import AppIntents
 import NimbleViews
 
 enum EmberQuickDestination: String, Identifiable { case importIPA, library; var id: String { rawValue } }
@@ -44,5 +45,47 @@ struct EmberQuickSheet: View {
         AppGroup.write(EmberWidgetState(apps: entries, updatedAt: .now), "ember-widget.json")
         WidgetCenter.shared.reloadAllTimelines()
         if #available(iOS 18.0, *) { ControlCenter.shared.reloadAllControls() }
+    }
+}
+
+
+/// App-only shortcuts avoid the sideloaded Control Widget host for these actions.
+struct EmberImportShortcutIntent: AppIntent {
+    static var title: LocalizedStringResource = "Import IPA with EmberSign"
+    static var openAppWhenRun = true
+    @MainActor func perform() async throws -> some IntentResult {
+        EmberQuickRouter.shared.destination = .importIPA
+        return .result()
+    }
+}
+struct EmberLibraryShortcutIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open EmberSign Library"
+    static var openAppWhenRun = true
+    @MainActor func perform() async throws -> some IntentResult {
+        EmberQuickRouter.shared.destination = .library
+        return .result()
+    }
+}
+struct EmberJITShortcutIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open EmberSign JIT Tools"
+    static var openAppWhenRun = true
+    @MainActor func perform() async throws -> some IntentResult {
+        EmberJITService.shared.present(bundleID: "")
+        return .result()
+    }
+}
+struct EmberSignShortcuts: AppShortcutsProvider {
+    static var shortcutTileColor: ShortcutTileColor = .orange
+
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(intent: EmberImportShortcutIntent(), phrases: [
+            "Import an IPA in \(.applicationName)",
+        ], shortTitle: "Import IPA", systemImageName: "square.and.arrow.down")
+        AppShortcut(intent: EmberLibraryShortcutIntent(), phrases: [
+            "Open my app library in \(.applicationName)",
+        ], shortTitle: "App Library", systemImageName: "square.grid.2x2.fill")
+        AppShortcut(intent: EmberJITShortcutIntent(), phrases: [
+            "Open JIT tools in \(.applicationName)",
+        ], shortTitle: "JIT Tools", systemImageName: "bolt.fill")
     }
 }
