@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Darwin
 import Combine
 import StikJIT
 
@@ -43,7 +44,7 @@ final class EmberJITService: ObservableObject {
 
     /// Enable JIT in another app. EmberSign is the debugger process, so the
     /// StikJIT self-debug helper extension is unnecessary here.
-    func enableBuiltIn() async {
+    func enableBuiltIn(deviceAddress: String, port: Int, timeout: Int) async {
         guard !isBusy else { return }
         guard #available(iOS 17.4, *) else {
             record("Built-in JIT requires iOS 17.4 or newer.")
@@ -54,6 +55,25 @@ final class EmberJITService: ObservableObject {
             record("Select another sideloaded app. EmberSign cannot attach to itself.")
             return
         }
+        let host = deviceAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        var ipv4 = in_addr()
+        guard host.withCString({ inet_pton(AF_INET, $0, &ipv4) }) == 1 else {
+            record("Enter the Device IP shown by LocalDevVPN, for example 10.7.0.1. Do not enter the Tunnel IP or an HTTP URL.")
+            return
+        }
+        guard (1...65535).contains(port) else {
+            record("Enter a valid local pairing port between 1 and 65535.")
+            return
+        }
+        guard (3...30).contains(timeout) else {
+            record("Choose a connection timeout between 3 and 30 seconds.")
+            return
+        }
+        let configuration = StikJIT.Configuration(
+            deviceAddress: host,
+            rsdPort: UInt16(port),
+            connectionTimeout: TimeInterval(timeout)
+        )
         let credentials: EmberPairingRecord
         do {
             credentials = try EmberPairingStore.read()
@@ -63,7 +83,7 @@ final class EmberJITService: ObservableObject {
         } catch { record(error.localizedDescription); return }
 
         isBusy = true
-        record("Preparing built-in StikJIT for \(target). Connect LocalDevVPN first.")
+        record("Preparing built-in StikJIT for \(target) at \(host):\(port) (\(timeout)s timeout). Keep LocalDevVPN connected.")
         let pairURL = EmberPairingStore.url
         let outcome = await Task.detached(priority: .userInitiated) { [weak self] () -> Result<String, Error> in
             do {
@@ -71,7 +91,7 @@ final class EmberJITService: ObservableObject {
                     .appendingPathComponent("EmberSign/StikJIT", isDirectory: true)
                 try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
                 let paths = DDIPaths.default(in: root)
-                let readiness = StikJIT.prepareDevice(pairingFile: pairURL, paths: paths) { stage in
+                let readiness = StikJIT.prepareDevice(pairingFile: pairURL, paths: paths, configuration: configuration) { stage in
                     let message: String
                     switch stage {
                     case .checkingReachability: message = "Checking the local device tunnel…"
@@ -90,10 +110,10 @@ final class EmberJITService: ObservableObject {
                 case .preparationFailed(let reason): throw EmberError.message("Developer image setup failed: \(reason)")
                 }
 
-                let pid = try EmberTargetLauncher.launch(bundleID: target, pairingFile: pairURL)
+                let pid = try EmberTargetLauncher.launch(bundleID: target, pairingFile: pairURL, configuration: configuration)
                 Task { @MainActor [weak self] in self?.record("Device launched \(target) (PID \(pid)). Attaching debugger…") }
                 try StikJIT.enableJIT(targetPID: pid, pairingFile: pairURL, ddiPaths: paths,
-                                     script: .universal) { stage in
+                                     configuration: configuration, script: .universal) { stage in
                     if case .ready = stage { return }
                 } progress: { message in
                     Task { @MainActor [weak self] in self?.record(message) }

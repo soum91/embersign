@@ -225,6 +225,9 @@ struct EmberJITView: View {
     @ObservedObject private var jit = EmberJITService.shared
     @AppStorage("EmberSign.jit.server") private var server = ""
     @AppStorage("EmberSign.jit.device") private var device = ""
+    @AppStorage("EmberSign.jit.endpoint.deviceIP") private var endpointDeviceIP = "10.7.0.1"
+    @AppStorage("EmberSign.jit.endpoint.port") private var endpointPort = 49152
+    @AppStorage("EmberSign.jit.endpoint.timeout") private var endpointTimeout = 5
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -235,9 +238,29 @@ struct EmberJITView: View {
                 Text("You can also hold a signed app in Apps and choose Enable JIT. Use the installed bundle identifier after any signing changes.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            Section("Local JIT connection") {
+                TextField("Device IP (LocalDevVPN)", text: $endpointDeviceIP)
+                    .keyboardType(.numbersAndPunctuation)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                TextField("Remote pairing port", value: $endpointPort, format: .number)
+                    .keyboardType(.numberPad)
+                Picker("Connection timeout", selection: $endpointTimeout) {
+                    Text("5 seconds").tag(5)
+                    Text("10 seconds").tag(10)
+                    Text("15 seconds").tag(15)
+                    Text("30 seconds").tag(30)
+                }
+                Button("Restore LocalDevVPN defaults") {
+                    endpointDeviceIP = "10.7.0.1"
+                    endpointPort = 49152
+                    endpointTimeout = 5
+                }.disabled(jit.isBusy)
+            } footer: {
+                Text("Use LocalDevVPN's Device IP, not its Tunnel IP. Your current settings already match 10.7.0.1:49152; changing these fields cannot fix an invalid pairing record or a connection reset.")
+            }
             Section {
                 Button {
-                    Task { await jit.enableBuiltIn() }
+                    Task { await jit.enableBuiltIn(deviceAddress: endpointDeviceIP, port: endpointPort, timeout: endpointTimeout) }
                 } label: {
                     HStack {
                         Label("Enable JIT in EmberSign", systemImage: "bolt.circle.fill")
