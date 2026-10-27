@@ -238,7 +238,7 @@ struct EmberJITView: View {
                 Text("You can also hold a signed app in Apps and choose Enable JIT. Use the installed bundle identifier after any signing changes.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            Section("Local JIT connection") {
+            Section {
                 TextField("Device IP (LocalDevVPN)", text: $endpointDeviceIP)
                     .keyboardType(.numbersAndPunctuation)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -255,6 +255,8 @@ struct EmberJITView: View {
                     endpointPort = 49152
                     endpointTimeout = 5
                 }.disabled(jit.isBusy)
+            } header: {
+                Text("Local JIT connection")
             } footer: {
                 Text("Use LocalDevVPN's Device IP, not its Tunnel IP. Your current settings already match 10.7.0.1:49152; changing these fields cannot fix an invalid pairing record or a connection reset.")
             }
