@@ -7,6 +7,33 @@
   "website": "https://github.com/soum91/embersign/tree/watch-support",
   "sourceURL": "https://raw.githubusercontent.com/soum91/embersign/watch-support/watch-source.json",
   "tintColor": "#F27A35",
-  "apps": [],
+  "apps": [
+    {
+      "name": "EmberSign Watch Preview",
+      "bundleIdentifier": "com.soum91.embersign",
+      "developerName": "soum91",
+      "iconURL": "https://raw.githubusercontent.com/soum91/embersign/main/assets/icon.png",
+      "category": "utilities",
+      "tintColor": "#F27A35",
+      "versions": [
+        {
+          "version": "0.2.1.10003",
+          "buildVersion": "10003",
+          "date": "2026-10-29",
+          "localizedDescription": "Experimental Apple Watch IPA inspection and signing-target report. Does not yet sign a Watch companion, provision Watch devices, or install an app onto Apple Watch.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/watch-preview-10003/EmberSign.ipa",
+          "size": 22041443,
+          "minOSVersion": "16.0"
+        }
+      ],
+      "subtitle": "Apple Watch IPA preflight (experimental)",
+      "localizedDescription": "Experimental Apple Watch IPA inspection and signing-target report. Does not yet sign a Watch companion, provision Watch devices, or install an app onto Apple Watch.",
+      "version": "0.2.1.10003",
+      "versionDate": "2026-10-29",
+      "versionDescription": "Experimental Apple Watch IPA inspection and signing-target report. Does not yet sign a Watch companion, provision Watch devices, or install an app onto Apple Watch.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/watch-preview-10003/EmberSign.ipa",
+      "size": 22041443
+    }
+  ],
   "news": []
 }
