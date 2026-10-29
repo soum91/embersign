@@ -129,6 +129,16 @@ final class EmberCoreTests: XCTestCase {
         }
     }
 
+    func testWatchArchivePreflightRejectsTraversalAndLimitsPlistSize() throws {
+        XCTAssertTrue(try EmberWatchArchivePolicy.shouldReadInfoPlist("Payload/WristPane.app/PlugIns/Watch.app/PlugIns/Widgets.appex/Info.plist", size: 500))
+        XCTAssertTrue(try EmberWatchArchivePolicy.shouldReadInfoPlist("Payload/WristPane.app/Watch/Legacy.app/Info.plist", size: 500))
+        XCTAssertFalse(try EmberWatchArchivePolicy.shouldReadInfoPlist("Payload/WristPane.app/Assets.car", size: 500))
+        for bad in ["../../Library/Preferences/private.plist", "/Payload/App.app/Info.plist", "Payload/../App.app/Info.plist", "Payload//App.app/Info.plist", "Payload\\App.app\\Info.plist"] {
+            XCTAssertThrowsError(try EmberWatchArchivePolicy.shouldReadInfoPlist(bad, size: 100))
+        }
+        XCTAssertThrowsError(try EmberWatchArchivePolicy.shouldReadInfoPlist("Payload/WristPane.app/Info.plist", size: 1_048_577))
+    }
+
     private func withTemporaryApp(_ body: (URL) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }

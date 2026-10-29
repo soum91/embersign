@@ -35,6 +35,8 @@ public enum EmberWatchBundleError: Error, LocalizedError, Equatable {
     case invalidWidgetIdentifier(String)
     case duplicateBundleID(String)
     case missingProfile(String)
+    case unsafeArchivePath(String)
+    case oversizedInfoPlist(String)
 
     public var errorDescription: String? {
         switch self {
@@ -44,7 +46,42 @@ public enum EmberWatchBundleError: Error, LocalizedError, Equatable {
         case .invalidWidgetIdentifier(let path): return "Watch widget bundle ID does not belong to its Watch app: \(path)"
         case .duplicateBundleID(let id): return "Duplicate bundle identifier: \(id)"
         case .missingProfile(let id): return "Separate provisioning profile required for \(id)."
+        case .unsafeArchivePath(let path): return "Unsafe path in IPA archive: \(path)"
+        case .oversizedInfoPlist(let path): return "Info.plist exceeds the 1 MB inspection limit: \(path)"
         }
+    }
+}
+
+/// Only the few plist paths needed for watch preflight may be materialized from
+/// an untrusted IPA. This policy runs BEFORE any filesystem writes.
+public enum EmberWatchArchivePolicy {
+    public static func shouldReadInfoPlist(_ path: String, size: UInt64) throws -> Bool {
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\"), !path.contains("\0") else {
+            throw EmberWatchBundleError.unsafeArchivePath(path)
+        }
+        let components = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            // Trailing '/' for directory entries is valid, but directories are
+            // excluded by the caller before invoking this policy.
+            throw EmberWatchBundleError.unsafeArchivePath(path)
+        }
+        guard components.first == "Payload", components.last == "Info.plist",
+              components.count >= 3, components[1].hasSuffix(".app") else { return false }
+        let valid: Bool
+        switch components.count {
+        case 3:
+            valid = true
+        case 5:
+            valid = ["Watch", "PlugIns"].contains(components[2]) && components[3].hasSuffix(".app")
+        case 7:
+            valid = ["Watch", "PlugIns"].contains(components[2]) && components[3].hasSuffix(".app")
+                && components[4] == "PlugIns" && components[5].hasSuffix(".appex")
+        default:
+            valid = false
+        }
+        guard valid else { return false }
+        guard size <= 1_048_576 else { throw EmberWatchBundleError.oversizedInfoPlist(path) }
+        return true
     }
 }
 

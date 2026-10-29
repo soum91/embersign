@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
-import Zip
+import ZIPFoundation
 
 /// Watch support preflight. Do not offer an install action until the Watch
 /// signing profiles and companion-proxy transport can be independently verified.
@@ -117,7 +117,29 @@ private func emberInspectWatchIPA(at file: URL) throws -> EmberWatchBundlePlan {
     try fm.copyItem(at: file, to: localIPA)
     let unpacked = directory.appendingPathComponent("unpacked", isDirectory: true)
     try fm.createDirectory(at: unpacked, withIntermediateDirectories: true)
-    try Zip.unzipFile(localIPA, destination: unpacked, overwrite: false, password: nil)
+    // Read only Info.plist entries from an untrusted archive. In particular,
+    // never pass the entire IPA to Zip.unzipFile, whose pinned release lacks
+    // safe traversal handling for arbitrary archive paths.
+    let archive = try Archive(url: localIPA, accessMode: .read)
+    var extracted = Set<String>()
+    for entry in archive where entry.type == .file {
+        guard try EmberWatchArchivePolicy.shouldReadInfoPlist(entry.path, size: UInt64(entry.uncompressedSize)) else {
+            continue
+        }
+        guard extracted.insert(entry.path).inserted else {
+            throw EmberWatchBundleError.unsafeArchivePath("Duplicate entry: \(entry.path)")
+        }
+        let target = unpacked.appendingPathComponent(entry.path)
+        var data = Data()
+        _ = try archive.extract(entry) { chunk in
+            guard data.count + chunk.count <= 1_048_576 else {
+                throw EmberWatchBundleError.oversizedInfoPlist(entry.path)
+            }
+            data.append(chunk)
+        }
+        try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: target, options: .atomic)
+    }
     let payload = unpacked.appendingPathComponent("Payload")
     let apps = try fm.contentsOfDirectory(at: payload, includingPropertiesForKeys: nil)
         .filter { $0.pathExtension == "app" }
