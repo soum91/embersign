@@ -433,6 +433,9 @@ private func emberExtractWatchIPA(at file: URL, into root: URL) throws -> (URL, 
             throw EmberWatchBundleError.unsafeArchivePath(path)
         }
         guard pieces.first == "Payload" else { continue }
+        // Standard IPA ZIPs may explicitly include the Payload/ directory.
+        // The root directory is safe and has no content to extract.
+        if entry.type == .directory && pieces.count == 1 { continue }
         guard pieces.count >= 2, pieces[1].hasSuffix(".app") else {
             throw EmberWatchBundleError.unsafeArchivePath(path)
         }
