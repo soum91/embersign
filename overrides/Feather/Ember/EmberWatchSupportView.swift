@@ -15,9 +15,10 @@ private final class EmberWatchProgress: ObservableObject {
 /// Inspect and transfer an already provisioned Watch app via the companion
 /// proxy. A Watch signing profile is distinct from an iPhone signing profile.
 struct EmberWatchSupportView: View {
-    @State private var isImporting = false
-    @State private var isSelectingSignedIPA = false
-    @State private var isSelectingUnsignedIPA = false
+    private enum IPASelection { case inspect, signed, provision }
+    @State private var selection: IPASelection = .inspect
+    @State private var isSelectingIPA = false
+    @State private var isShowingOperationError = false
     @State private var isInspecting = false
     @State private var isDiscovering = false
     @State private var isInstalling = false
@@ -34,7 +35,8 @@ struct EmberWatchSupportView: View {
         List {
             Section("Watch IPA inspection") {
                 Button {
-                    isImporting = true
+                    selection = .inspect
+                    isSelectingIPA = true
                 } label: {
                     Label("Inspect an IPA", systemImage: "applewatch")
                 }
@@ -105,7 +107,9 @@ struct EmberWatchSupportView: View {
                     }
                 } else {
                     Button {
-                        isSelectingUnsignedIPA = true
+                        selection = .provision
+                        watchProgress.status = "Choose an unsigned iPhone IPA containing its Watch companion."
+                        isSelectingIPA = true
                     } label: {
                         HStack {
                             Label("Provision, sign and install IPA", systemImage: "checkmark.shield")
@@ -114,6 +118,15 @@ struct EmberWatchSupportView: View {
                         }
                     }
                     .disabled(watchIDs.count != 1 || iphoneUDID == nil || isSigning || isInstalling || isDiscovering)
+                    if isSigning { ProgressView().padding(.vertical, 4) }
+                    Text(watchProgress.status)
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    if let errorText {
+                        Text(errorText)
+                            .font(.footnote).foregroundStyle(.red)
+                            .textSelection(.enabled)
+                    }
                     Text("First tap Find paired Apple Watch, then choose the unsigned WristPane IPA. EmberSign will request three development profiles, sign the nested bundles, install the iPhone app, then send the Watch app to watchOS.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -121,7 +134,8 @@ struct EmberWatchSupportView: View {
 
             Section("Install already signed Watch companion") {
                 Button {
-                    isSelectingSignedIPA = true
+                    selection = .signed
+                    isSelectingIPA = true
                 } label: {
                     HStack {
                         Label("Install signed Watch IPA", systemImage: "square.and.arrow.down")
@@ -138,55 +152,50 @@ struct EmberWatchSupportView: View {
         }
         .navigationTitle("Apple Watch")
         .fileImporter(
-            isPresented: $isImporting,
+            isPresented: $isSelectingIPA,
             allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data],
             allowsMultipleSelection: false
         ) { result in
             switch result {
             case .success(let urls):
                 guard let first = urls.first else { return }
-                isInspecting = true
-                errorText = nil
-                plan = nil
-                Task {
-                    do {
-                        let inspected = try await Task.detached(priority: .userInitiated) {
-                            try emberInspectWatchIPA(at: first)
-                        }.value
-                        plan = inspected
-                    } catch {
-                        errorText = error.localizedDescription
+                switch selection {
+                case .inspect:
+                    isInspecting = true
+                    errorText = nil
+                    plan = nil
+                    Task {
+                        do {
+                            let inspected = try await Task.detached(priority: .userInitiated) {
+                                try emberInspectWatchIPA(at: first)
+                            }.value
+                            plan = inspected
+                        } catch {
+                            showOperationError(error)
+                        }
+                        isInspecting = false
                     }
-                    isInspecting = false
+                case .signed:
+                    installSignedIPA(first)
+                case .provision:
+                    watchProgress.status = "Selected \(first.lastPathComponent). Starting provisioning…"
+                    signAndInstallIPA(first)
                 }
             case .failure(let error):
-                errorText = error.localizedDescription
+                showOperationError(error)
             }
         }
-        .fileImporter(
-            isPresented: $isSelectingSignedIPA,
-            allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let file = urls.first { installSignedIPA(file) }
-            case .failure(let error):
-                errorText = error.localizedDescription
-            }
+        .alert("Apple Watch operation failed", isPresented: $isShowingOperationError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorText ?? "Unknown error")
         }
-        .fileImporter(
-            isPresented: $isSelectingUnsignedIPA,
-            allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let file = urls.first { signAndInstallIPA(file) }
-            case .failure(let error):
-                errorText = error.localizedDescription
-            }
-        }
+    }
+
+    private func showOperationError(_ error: Error) {
+        errorText = error.localizedDescription
+        watchProgress.status = "Watch operation failed. See error details."
+        isShowingOperationError = true
     }
 
     private func discoverWatches() {
@@ -226,8 +235,7 @@ struct EmberWatchSupportView: View {
                 watchIDs = Array(ids.dropFirst())
                 watchProgress.status = watchIDs.isEmpty ? "No Apple Watch is paired or reachable." : "Found \(watchIDs.count) paired Apple Watch device(s)."
             case .failure(let error):
-                errorText = error.localizedDescription
-                watchProgress.status = "Watch discovery failed."
+                showOperationError(error)
             }
         }
     }
@@ -261,15 +269,18 @@ struct EmberWatchSupportView: View {
             switch outcome {
             case .success(let message): watchProgress.status = message
             case .failure(let error):
-                errorText = error.localizedDescription
-                watchProgress.status = "Apple Watch installation did not complete."
+                showOperationError(error)
             }
         }
     }
 
     private func signAndInstallIPA(_ file: URL) {
-        guard !isSigning, watchIDs.count == 1, let watchID = watchIDs.first,
-              let phoneID = iphoneUDID, (1...65535).contains(devicePort) else { return }
+        guard !isSigning else { return }
+        guard watchIDs.count == 1, let watchID = watchIDs.first,
+              let phoneID = iphoneUDID, (1...65535).contains(devicePort) else {
+            showOperationError(EmberError.message("Find exactly one paired Apple Watch using a valid LocalDevVPN endpoint before selecting an IPA."))
+            return
+        }
         let endpoint = deviceIP
         let port = devicePort
         let hostID = Self.savedWatchIdentifier("EmberSign.watch.hostID")
@@ -307,8 +318,7 @@ struct EmberWatchSupportView: View {
                 }.value
                 watchProgress.status = message
             } catch {
-                errorText = error.localizedDescription
-                watchProgress.status = "Watch signing or installation stopped. Check the error above."
+                showOperationError(error)
                 EmberErrorCenter.shared.record(error, operation: "Apple Watch installation")
             }
             isSigning = false
