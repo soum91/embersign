@@ -2,7 +2,7 @@ name: Build EmberSign
 
 on:
   push:
-    branches: [main]
+    branches: [main, watch-native]
   workflow_dispatch:
 
 permissions:
@@ -73,6 +73,7 @@ jobs:
           path: packages/*
           if-no-files-found: warn
       - name: Publish installable package for personal signing
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v0.2.1-build.${{ github.run_number }}
@@ -82,9 +83,12 @@ jobs:
           body: |
             EmberSign 0.2.1 development build for iOS 16 and later.
 
-            New: Apple Watch IPA preflight under Tools. Inspect Watch companions,
-            WidgetKit extensions, and the distinct signing targets before signing.
-            Direct Apple Watch signing and installation are NOT yet implemented.
+            New: Experimental on-device Apple Watch installation under Tools.
+            Discovers the paired Watch, requests distinct iPhone/watchOS development
+            profiles, signs nested Watch apps and widgets, installs the iPhone host,
+            and streams the Watch app through the companion proxy to watchOS.
+            This has not yet been validated on a real iOS 27/watchOS 27 pair;
+            Apple's platform registration and service authorization may reject it.
 
             Adds multiple Apple Account sessions, 2FA, on-device free/paid development provisioning, account/team quotas, certificate/App ID/profile management, paired-device app inventory, uninstall and portal cleanup, automatic re-sign/reinstall attempts, and error-code diagnostics with online issue lookup.
 
@@ -99,6 +103,7 @@ jobs:
             packages/build-info.json
             packages/EmberSign-Source.tar.gz
       - name: Update FlareStore feed after successful release
+        if: github.ref == 'refs/heads/main'
         run: |
           git add source.json
           if ! git diff --cached --quiet; then

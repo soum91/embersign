@@ -28,6 +28,41 @@ def prepare(destination):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
 
+    # Zsign's C++ engine can already match each nested bundle with a different
+    # ZSignAsset, but its Swift bridge exposes just one profile. Preserve the
+    # public Swift API and accept newline-separated profile paths for the Watch
+    # signing flow. Normal single-profile signing is unchanged.
+    zsign_bridge = destination / "Zsign/swift/zsign.mm"
+    replace_once(zsign_bridge,
+        'strProvFile = [prov cStringUsingEncoding:NSUTF8StringEncoding];',
+        '''strProvFile = [prov cStringUsingEncoding:NSUTF8StringEncoding];
+    std::vector<std::string> emberProvisionPaths;
+    size_t emberStart = 0;
+    while (true) {
+        size_t emberEnd = strProvFile.find('\\n', emberStart);
+        std::string emberPath = strProvFile.substr(emberStart, emberEnd == std::string::npos ? std::string::npos : emberEnd - emberStart);
+        if (!emberPath.empty()) emberProvisionPaths.push_back(emberPath);
+        if (emberEnd == std::string::npos) break;
+        emberStart = emberEnd + 1;
+    }
+    if (emberProvisionPaths.size() > 1) strProvFile = emberProvisionPaths.front();''')
+    replace_once(zsign_bridge,
+        'bool bRet = bundle.SignFolder(&zsa, strFolder, strBundleId, strBundleVersion, strDisplayName, arrDylibFiles, arrDisDylibFiles, bForce, bWeakInject, bEnableCache, excludeprovion);',
+        '''bool bRet = false;
+    if (emberProvisionPaths.size() > 1) {
+        std::list<ZSignAsset> emberAssets;
+        for (const std::string& emberPath : emberProvisionPaths) {
+            emberAssets.emplace_back();
+            if (!emberAssets.back().Init(strCertFile, strPKeyFile, emberPath, strEntitleFile, strPassword, bAdhoc, bSHA256Only, false)) {
+                ZLog::ErrorV(\">>> Could not load Watch profile: %s\\n\", emberPath.c_str());
+                return -1;
+            }
+        }
+        bRet = bundle.SignFolder(&emberAssets, strFolder, strBundleId, strBundleVersion, strDisplayName, arrDylibFiles, arrDisDylibFiles, bForce, bWeakInject, bEnableCache, excludeprovion);
+    } else {
+        bRet = bundle.SignFolder(&zsa, strFolder, strBundleId, strBundleVersion, strDisplayName, arrDylibFiles, arrDisDylibFiles, bForce, bWeakInject, bEnableCache, excludeprovion);
+    }''')
+
     options = app / "Backend/Observable/OptionsManager.swift"
     replace_once(options, "struct Options: Codable, Equatable {", "struct Options: Codable, Equatable {\n\t/// Prepare debugger entitlements using an authorized development profile.\n\tvar prepareForJIT: Bool = false")
     view = app / "Views/Signing/Shared/SigningOptionsView.swift"

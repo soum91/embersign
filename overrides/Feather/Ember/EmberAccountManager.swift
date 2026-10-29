@@ -38,6 +38,11 @@ struct EmberAccountInventory {
     }
 }
 
+struct EmberWatchSigningIdentity: Sendable {
+    let p12: Data
+    let profiles: [String: Data]
+}
+
 struct EmberTwoFactorChallenge: Identifiable {
     let id = UUID()
     let request: TwoFactorRequest
@@ -404,6 +409,83 @@ final class EmberAccountManager: ObservableObject {
         status = "Fresh signing identity ready for \(bundleID)."
         await refresh(accountID: account.id)
         return imported
+    }
+
+    /// Provision the iPhone host, Watch app and Watch extensions separately.
+    /// Watch profiles must explicitly include the registered Watch UDID;
+    /// reusing a profile generated for the iPhone would produce an invalid IPA.
+    func provisionWatchCompanion(plan: EmberWatchBundlePlan, iphoneUDID: String, watchUDID: String) async throws -> EmberWatchSigningIdentity {
+        guard var account = selectedAccount else { throw EmberAccountStoreError.missingAccount }
+        guard let team = account.selectedTeam else { throw EmberAccountStoreError.missingTeam }
+        guard !watchUDID.isEmpty else { throw EmberError.message("Connect and discover your paired Apple Watch first.") }
+        guard !iphoneUDID.isEmpty else { throw EmberAccountStoreError.missingPairingUDID }
+        status = "Registering iPhone and Apple Watch…"
+        var devices = try await portal.fetchDevices(for: team, session: account.auth.session)
+        if !devices.contains(where: { $0.identifier.caseInsensitiveCompare(iphoneUDID) == .orderedSame }) {
+            let registered = try await portal.registerDevice(
+                name: UIDevice.current.name, identifier: iphoneUDID, type: .iPhone,
+                team: team, session: account.auth.session
+            )
+            devices.append(registered)
+        }
+        if !devices.contains(where: { $0.identifier.caseInsensitiveCompare(watchUDID) == .orderedSame }) {
+            let registered = try await portal.registerDevice(
+                name: "EmberSign Apple Watch", identifier: watchUDID, type: .appleWatch,
+                team: team, session: account.auth.session
+            )
+            devices.append(registered)
+        }
+
+        var appIDs = try await portal.fetchAppIDs(for: team, session: account.auth.session)
+        let certificates = try await portal.fetchCertificates(for: team, session: account.auth.session)
+        var p12 = account.signingP12
+        if p12 == nil || account.signingCertificateID == nil ||
+           !certificates.contains(where: { $0.identifier == account.signingCertificateID }) {
+            status = "Creating development signing certificate…"
+            let store = try await portal.addCertificate(
+                machineName: "EmberSign Apple Watch", to: team, session: account.auth.session
+            )
+            p12 = try store.exportP12(password: "")
+            account.signingP12 = p12
+            account.signingCertificateID = store.certificate.identifier
+            try persist(account)
+            upsert(account)
+        }
+        guard let p12 else { throw EmberError.message("Could not get a development certificate.") }
+
+        var profiles: [String: Data] = [:]
+        for target in plan.targets {
+            let id = target.bundleID
+            status = "Provisioning \(id)…"
+            let appID: AppID
+            if let found = appIDs.first(where: { $0.bundleIdentifier == id }) {
+                appID = found
+            } else {
+                appID = try await portal.addAppID(
+                    withName: "EmberSign \(id)", bundleIdentifier: id,
+                    team: team, session: account.auth.session
+                )
+                appIDs.append(appID)
+            }
+            let isWatch = target.kind != .iphoneApp
+            let profile = try await portal.downloadProvisioningProfile(
+                for: appID, isTeamProfile: true,
+                subPlatform: isWatch ? "watchOS" : nil,
+                deviceType: isWatch ? .appleWatch : .iPhone,
+                team: team, session: account.auth.session
+            )
+            let expectedUDID = isWatch ? watchUDID : iphoneUDID
+            guard profile.deviceIDs.contains(where: { $0.caseInsensitiveCompare(expectedUDID) == .orderedSame }) else {
+                throw EmberError.message("Apple's \(isWatch ? "watchOS" : "iOS") profile for \(id) does not include the registered device \(expectedUDID). Check your team and device registration.")
+            }
+            guard profile.bundleIdentifier == id else {
+                throw EmberError.message("Apple returned a mismatched profile for \(id).")
+            }
+            profiles[id] = profile.data
+        }
+        try plan.validateProfiles(profiles)
+        status = "All iPhone, Watch and extension profiles are ready."
+        return EmberWatchSigningIdentity(p12: p12, profiles: profiles)
     }
 
     func accountID(for bundleID: String) -> String? {

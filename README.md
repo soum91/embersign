@@ -22,11 +22,13 @@ An iOS 16+ app for signing and customizing IPAs on device, managing pairing file
 
 ## Current limits
 
-### Apple Watch IPA inspection
+### Experimental Apple Watch installation
 
-EmberSign 0.2.1 adds an Apple Watch preflight screen under Tools. It can inspect an imported IPA for modern `PlugIns/*.app` and older `Watch/*.app` companions, list the Watch app and WidgetKit signing targets, and identify the separate profiles required for each target. This is **read-only inspection**, not Watch signing or Watch installation. The companion signing engine, Apple Watch device registration, and watchOS installation transport still need implementation and physical Watch testing. Never install a Watch IPA signed with an iPhone-only profile and expect its complications to work.
+Tools > Apple Watch can now discover a paired Watch through the on-device LocalDevVPN remote-pairing tunnel. With an Apple Account signed in, it attempts to register both devices with Apple, fetch distinct iOS/watchOS development profiles, sign the iPhone host, Watch app, and Watch widgets using Zsign's multi-profile engine, install the iPhone host, and stream the Watch companion directly through the paired iPhone's `companion_proxy` and the Watch's `streaming_zip_conduit`. It also has a separate option to transfer an IPA already correctly signed for the Watch. Both modern `PlugIns/*.app` and legacy `Watch/*.app` layouts are recognized.
 
-This feature is included in the normal `main` releases and existing FlareStore source, so an additional repo is not required. Updates still need to be re-signed with the same certificate as the installed app to preserve its data.
+**This is experimental and has not been validated on a physical iOS 27/watchOS 27 pair.** Apple's Watch registration and service authorization may reject the operation. A free Personal Team may have limited device/App ID quotas and 7-day provisioning; a FlareStore iPhone-only certificate is not a replacement for Watch provisioning. Keep LocalDevVPN connected, the Watch unlocked and nearby, and enable Developer Mode on the Watch. EmberSign never proactively uninstalls a Watch app during an update. If any stage fails, the exact error is shown. An Apple Account and working remote-pairing record are required for the automatic signing path.
+
+This feature ships in the normal `main` releases and existing FlareStore source, with no separate feed. Re-sign the update with the same identity as the installed EmberSign to preserve its app data.
 
 Apple Account authentication and provisioning depend on Apple's private developer-service behavior and Anisette. Apple can change either flow without notice, public Anisette services can be unavailable, and repeated failed sign-ins can be rate-limited. EmberSign never stores the Apple Account password. Auth sessions and generated signing keys are stored in the iOS Keychain.
 
