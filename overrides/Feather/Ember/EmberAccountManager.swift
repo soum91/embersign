@@ -178,7 +178,16 @@ final class EmberAccountManager: ObservableObject {
             )
             let teams = try await loginPortal.fetchTeams(for: auth.account, session: auth.session)
             guard let team = teams.first else { throw EmberAccountStoreError.missingTeam }
-            let stored = EmberStoredAccount(auth: auth, teams: teams, selectedTeamID: team.identifier)
+            // Reauthentication must not erase a private signing key already saved for this Apple Account.
+            let existing = accounts.first(where: { $0.id == auth.account.appleID.lowercased() })
+            let selectedTeamID = existing.flatMap { previous in
+                teams.first(where: { $0.identifier == previous.selectedTeamID })?.identifier
+            } ?? team.identifier
+            let stored = EmberStoredAccount(
+                auth: auth, teams: teams, selectedTeamID: selectedTeamID,
+                signingP12: existing?.signingP12,
+                signingCertificateID: existing?.signingCertificateID
+            )
             try persist(stored)
             upsert(stored)
             select(stored.id)
@@ -445,6 +454,25 @@ final class EmberAccountManager: ObservableObject {
         }
 
         var appIDs = try await portal.fetchAppIDs(for: team, session: account.auth.session)
+        // Register every target before touching the certificate quota. A rejected App ID
+        // should never strand a newly created development certificate.
+        var registeredAppIDs: [String: AppID] = [:]
+        for target in plan.targets {
+            let id = target.bundleID
+            status = "Registering App ID for \(id)…"
+            let appID: AppID
+            if let found = appIDs.first(where: { $0.bundleIdentifier == id }) {
+                appID = found
+            } else {
+                appID = try await portal.addAppID(
+                    withName: portalAppIDDisplayName(for: id), bundleIdentifier: id,
+                    team: team, session: account.auth.session
+                )
+                appIDs.append(appID)
+            }
+            registeredAppIDs[id] = appID
+        }
+
         let certificates = try await portal.fetchCertificates(for: team, session: account.auth.session)
         var p12 = account.signingP12
         if p12 == nil || account.signingCertificateID == nil ||
@@ -465,15 +493,8 @@ final class EmberAccountManager: ObservableObject {
         for target in plan.targets {
             let id = target.bundleID
             status = "Provisioning \(id)…"
-            let appID: AppID
-            if let found = appIDs.first(where: { $0.bundleIdentifier == id }) {
-                appID = found
-            } else {
-                appID = try await portal.addAppID(
-                    withName: portalAppIDDisplayName(for: id), bundleIdentifier: id,
-                    team: team, session: account.auth.session
-                )
-                appIDs.append(appID)
+            guard let appID = registeredAppIDs[id] else {
+                throw EmberError.message("App ID registration was missing for \(id).")
             }
             let isWatch = target.kind != .iphoneApp
             let profile = try await portal.downloadProvisioningProfile(
