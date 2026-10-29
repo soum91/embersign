@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 import ZIPFoundation
 import EmberPairingNative
 import Zsign
@@ -127,6 +128,8 @@ struct EmberWatchSupportView: View {
                             .font(.footnote).foregroundStyle(.red)
                             .textSelection(.enabled)
                     }
+                    Text("This route requests a development certificate through your selected Apple Account. It does not require a certificate in the imported Certificates list.")
+                        .font(.footnote).foregroundStyle(.secondary)
                     Text("First tap Find paired Apple Watch, then choose the unsigned WristPane IPA. EmberSign will request three development profiles, sign the nested bundles, install the iPhone app, then send the Watch app to watchOS.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -151,44 +154,51 @@ struct EmberWatchSupportView: View {
             }.font(.footnote)
         }
         .navigationTitle("Apple Watch")
-        .fileImporter(
-            isPresented: $isSelectingIPA,
-            allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                guard let first = urls.first else { return }
-                switch selection {
-                case .inspect:
-                    isInspecting = true
-                    errorText = nil
-                    plan = nil
-                    Task {
-                        do {
-                            let inspected = try await Task.detached(priority: .userInitiated) {
-                                try emberInspectWatchIPA(at: first)
-                            }.value
-                            plan = inspected
-                        } catch {
-                            showOperationError(error)
-                        }
-                        isInspecting = false
-                    }
-                case .signed:
-                    installSignedIPA(first)
-                case .provision:
-                    watchProgress.status = "Selected \(first.lastPathComponent). Starting provisioning…"
-                    signAndInstallIPA(first)
+        .sheet(isPresented: $isSelectingIPA) {
+            EmberWatchNativeIPAPicker(
+                onPick: { file in
+                    isSelectingIPA = false
+                    acceptSelectedIPA(file)
+                },
+                onCancel: {
+                    isSelectingIPA = false
+                    watchProgress.status = "IPA selection cancelled."
                 }
-            case .failure(let error):
-                showOperationError(error)
-            }
+            )
         }
         .alert("Apple Watch operation failed", isPresented: $isShowingOperationError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorText ?? "Unknown error")
+        }
+    }
+
+    private func acceptSelectedIPA(_ file: URL) {
+        guard file.pathExtension.lowercased() == "ipa" else {
+            showOperationError(EmberError.message("Choose an .ipa file, not \(file.lastPathComponent)."))
+            return
+        }
+        watchProgress.status = "Received \(file.lastPathComponent) from Files."
+        switch selection {
+        case .inspect:
+            isInspecting = true
+            errorText = nil
+            plan = nil
+            Task {
+                do {
+                    let inspected = try await Task.detached(priority: .userInitiated) {
+                        try emberInspectWatchIPA(at: file)
+                    }.value
+                    plan = inspected
+                } catch {
+                    showOperationError(error)
+                }
+                isInspecting = false
+            }
+        case .signed:
+            installSignedIPA(file)
+        case .provision:
+            signAndInstallIPA(file)
         }
     }
 
@@ -346,6 +356,46 @@ struct EmberWatchSupportView: View {
         }
     }
 
+}
+
+private struct EmberWatchNativeIPAPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+    let onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // Use the system's broad file type, then validate .ipa explicitly.
+        // Dynamic IPA UTTypes can prevent the SwiftUI file importer from
+        // delivering a selection for an otherwise valid archive.
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, onCancel: onCancel)
+    }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        let onCancel: () -> Void
+
+        init(onPick: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let first = urls.first else { onCancel(); return }
+            onPick(first)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onCancel()
+        }
+    }
 }
 
 private func emberInstallSignedWatchIPA(
