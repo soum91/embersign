@@ -336,6 +336,14 @@ final class EmberAccountManager: ObservableObject {
         await refresh(accountID: account.id)
     }
 
+    /// Apple's App ID display name accepts only ASCII letters, numbers and spaces.
+    /// The bundle identifier itself retains its original dots and other characters.
+    private func portalAppIDDisplayName(for bundleID: String) -> String {
+        let readable = bundleID.replacingOccurrences(of: "[^A-Za-z0-9]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return "EmberSign \(readable)"
+    }
+
     func provisionSigningIdentity(bundleID: String, accountID: String? = nil) async throws -> CertificatePair {
         let targetID = accountID ?? selectedAccountID
         guard var account = accounts.first(where: { $0.id == targetID }) else { throw EmberAccountStoreError.missingAccount }
@@ -363,7 +371,7 @@ final class EmberAccountManager: ObservableObject {
         if let existing = appIDs.first(where: { $0.bundleIdentifier == bundleID }) {
             appID = existing
         } else {
-            appID = try await portal.addAppID(withName: "EmberSign \(bundleID)", bundleIdentifier: bundleID, team: team, session: account.auth.session)
+            appID = try await portal.addAppID(withName: portalAppIDDisplayName(for: bundleID), bundleIdentifier: bundleID, team: team, session: account.auth.session)
             appIDs.append(appID)
         }
 
@@ -462,7 +470,7 @@ final class EmberAccountManager: ObservableObject {
                 appID = found
             } else {
                 appID = try await portal.addAppID(
-                    withName: "EmberSign \(id)", bundleIdentifier: id,
+                    withName: portalAppIDDisplayName(for: id), bundleIdentifier: id,
                     team: team, session: account.auth.session
                 )
                 appIDs.append(appID)
