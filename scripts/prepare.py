@@ -16,6 +16,14 @@ def replace_once(path, before, after):
     path.write_text(text.replace(before, after, 1))
 
 
+def replace_first(path, before, after):
+    """Patch the first signing entry point, not the later certificate inspector."""
+    text = path.read_text()
+    if before not in text:
+        raise RuntimeError(f"Upstream source changed: missing anchor in {path}")
+    path.write_text(text.replace(before, after, 1))
+
+
 def prepare(destination):
     destination = Path(destination).resolve()
     lock = json.loads((ROOT / "upstream.lock.json").read_text())
@@ -33,7 +41,7 @@ def prepare(destination):
     # public Swift API and accept newline-separated profile paths for the Watch
     # signing flow. Normal single-profile signing is unchanged.
     zsign_bridge = destination / "Zsign/swift/zsign.mm"
-    replace_once(zsign_bridge,
+    replace_first(zsign_bridge,
         'strProvFile = [prov cStringUsingEncoding:NSUTF8StringEncoding];',
         '''strProvFile = [prov cStringUsingEncoding:NSUTF8StringEncoding];
     std::vector<std::string> emberProvisionPaths;
