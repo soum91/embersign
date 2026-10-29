@@ -499,7 +499,8 @@ final class EmberAccountManager: ObservableObject {
             let isWatch = target.kind != .iphoneApp
             let profile = try await portal.downloadProvisioningProfile(
                 for: appID, isTeamProfile: true,
-                subPlatform: isWatch ? "watchOS" : nil,
+                // Apple provisions watchOS apps through the iOS Development profile type.
+                // "watchOS" is not a valid Developer Portal subPlatform (error 35).
                 deviceType: isWatch ? .appleWatch : .iPhone,
                 team: team, session: account.auth.session
             )
