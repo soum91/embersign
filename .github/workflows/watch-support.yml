@@ -1,0 +1,45 @@
+name: Experimental Watch support
+
+on:
+  push:
+    branches: [watch-support]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: embersign-watch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests-and-build:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select pinned Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.0.app/Contents/Developer
+          xcodebuild -version
+      - name: Validate Watch bundle and policy tests
+        run: swift test
+      - name: Validate release feed tests
+        run: python3 -m unittest discover -s Tests -p 'test_source_feed.py'
+      - name: Assemble pinned EmberSign engine
+        run: bash scripts/bootstrap.sh
+      - name: Install Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - name: Install XcodeGen
+        run: command -v xcodegen || brew install xcodegen
+      - name: Compile experimental IPA without publishing a release
+        run: bash scripts/build.sh
+      - name: Save diagnostic log and unsigned IPA for testing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmberSign-Watch-Experimental-${{ github.run_number }}
+          path: packages/*
+          if-no-files-found: warn

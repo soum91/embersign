@@ -36,6 +36,9 @@ struct EmberToolsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Section("Device tools") {
+                    NavigationLink { EmberWatchSupportView() } label: {
+                        Label("Apple Watch", systemImage: "applewatch")
+                    }
                     NavigationLink { EmberDeviceAppsView() } label: {
                         Label("Installed apps", systemImage: "square.grid.2x2")
                     }
