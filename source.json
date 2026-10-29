@@ -13,11 +13,20 @@
       "bundleIdentifier": "com.soum91.embersign",
       "developerName": "soum91",
       "subtitle": "Apple Accounts, IPA signing and JIT tools",
-      "localizedDescription": "EmberSign signs IPAs using imported certificates or Apple Account provisioning, supports multiple saved Apple Accounts, compatible tweak injection, pairing-file management, JIT preparation, paired-device app inventory, best-effort app refresh, and error diagnostics with online lookup. Apple services and background refresh require device testing; a pairing tunnel is needed for installed-app inventory.",
+      "localizedDescription": "EmberSign signs IPAs using imported certificates or Apple Account provisioning, supports multiple saved Apple Accounts, compatible tweak injection, pairing-file management, JIT preparation, paired-device app inventory, best-effort app refresh, Apple Watch IPA signing-target inspection, and error diagnostics with online lookup. Watch installation is not yet supported. Apple services and background refresh require device testing; a pairing tunnel is needed for installed-app inventory.",
       "iconURL": "https://raw.githubusercontent.com/soum91/embersign/main/assets/icon.png",
       "tintColor": "#F27A35",
       "category": "utilities",
       "versions": [
+        {
+          "version": "0.2.1.23",
+          "buildVersion": "23",
+          "date": "2026-10-29",
+          "localizedDescription": "EmberSign 0.2.1 build 23: Apple Accounts, signing and provisioning, paired-device app inventory, quota estimates, refresh controls, JIT tools, Apple Watch IPA preflight (no Watch installation yet), and diagnostics.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.23/EmberSign.ipa",
+          "size": 22041504,
+          "minOSVersion": "16.0"
+        },
         {
           "version": "0.2.0.22",
           "buildVersion": "22",
@@ -109,11 +118,11 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.0.22",
-      "versionDate": "2026-10-27",
-      "versionDescription": "EmberSign 0.2.0 build 22: Apple Accounts, signing and provisioning, paired-device app inventory, quota estimates, refresh controls, JIT tools, and diagnostics.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.0-build.22/EmberSign.ipa",
-      "size": 21894565
+      "version": "0.2.1.23",
+      "versionDate": "2026-10-29",
+      "versionDescription": "EmberSign 0.2.1 build 23: Apple Accounts, signing and provisioning, paired-device app inventory, quota estimates, refresh controls, JIT tools, Apple Watch IPA preflight (no Watch installation yet), and diagnostics.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.23/EmberSign.ipa",
+      "size": 22041504
     }
   ],
   "news": []
