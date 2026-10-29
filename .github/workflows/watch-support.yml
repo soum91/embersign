@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: embersign-watch-${{ github.ref }}
@@ -25,7 +25,7 @@ jobs:
       - name: Validate Watch bundle and policy tests
         run: swift test
       - name: Validate release feed tests
-        run: python3 -m unittest discover -s Tests -p 'test_source_feed.py'
+        run: python3 -m unittest discover -s Tests -p 'test_*.py'
       - name: Assemble pinned EmberSign engine
         run: bash scripts/bootstrap.sh
       - name: Install Rust target
@@ -34,7 +34,12 @@ jobs:
           targets: aarch64-apple-ios
       - name: Install XcodeGen
         run: command -v xcodegen || brew install xcodegen
+      - name: Reserve a monotonic preview build number
+        id: preview_number
+        run: echo "number=$((10000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
       - name: Compile experimental IPA without publishing a release
+        env:
+          EMBERSIGN_BUILD_NUMBER: ${{ steps.preview_number.outputs.number }}
         run: bash scripts/build.sh
       - name: Save diagnostic log and unsigned IPA for testing
         if: always()
@@ -43,3 +48,32 @@ jobs:
           name: EmberSign-Watch-Experimental-${{ github.run_number }}
           path: packages/*
           if-no-files-found: warn
+      - name: Prepare experimental FlareStore feed
+        run: python3 scripts/update_watch_source.py
+      - name: Publish experimental IPA as a GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: watch-preview-${{ steps.preview_number.outputs.number }}
+          name: EmberSign Watch Preview ${{ steps.preview_number.outputs.number }}
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          body: |
+            Experimental EmberSign build with an Apple Watch IPA inspection screen.
+            It identifies the iPhone, Watch app, and widget signing targets.
+            This build does NOT sign or install apps directly onto Apple Watch.
+            The IPA is ad-hoc signed; re-sign it with your existing iPhone signing tool.
+            Main EmberSign releases and the main FlareStore feed are unaffected.
+          files: |
+            packages/EmberSign.ipa
+            packages/EmberSign.ipa.sha256
+            packages/build-info.json
+      - name: Update preview feed only after successful prerelease
+        run: |
+          git add watch-source.json
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m "Update Watch preview FlareStore feed for build ${{ github.run_number }} [skip ci]"
+            git push origin HEAD:watch-support
+          fi

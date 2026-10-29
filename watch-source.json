@@ -1,0 +1,12 @@
+{
+  "name": "EmberSign Watch Preview",
+  "identifier": "com.soum91.embersign.watch-preview.source",
+  "subtitle": "Experimental Apple Watch IPA inspection",
+  "description": "Preview builds of EmberSign. Watch IPA inspection is available; Watch signing and installation are not yet supported.",
+  "iconURL": "https://raw.githubusercontent.com/soum91/embersign/main/assets/icon.png",
+  "website": "https://github.com/soum91/embersign/tree/watch-support",
+  "sourceURL": "https://raw.githubusercontent.com/soum91/embersign/watch-support/watch-source.json",
+  "tintColor": "#F27A35",
+  "apps": [],
+  "news": []
+}
