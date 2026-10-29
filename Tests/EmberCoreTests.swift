@@ -81,4 +81,74 @@ final class EmberCoreTests: XCTestCase {
         }
         XCTAssertNoThrow(try EmberJITProtocol.activationMessage(data: Data(#""Enabled JIT for 'App'!""#.utf8)))
     }
+
+    func testModernWatchCompanionRequiresThreeDifferentProfiles() throws {
+        try withTemporaryApp { host in
+            let watch = host.appendingPathComponent("PlugIns/WristPaneWatch.app")
+            let widget = watch.appendingPathComponent("PlugIns/WristPaneWatchWidgets.appex")
+            try writeBundle(host, identifier: "com.example.wristpane")
+            try writeBundle(watch, identifier: "com.example.wristpane.watchkitapp", extra: [
+                "WKCompanionAppBundleIdentifier": "com.example.wristpane"
+            ])
+            try writeBundle(widget, identifier: "com.example.wristpane.watchkitapp.widgets", extra: [
+                "NSExtension": ["NSExtensionPointIdentifier": "com.apple.widgetkit-extension"]
+            ])
+
+            let plan = try EmberWatchBundleInspector.inspect(iphoneApp: host)
+            XCTAssertTrue(plan.hasWatchCompanion)
+            XCTAssertEqual(plan.requiredBundleIDs, [
+                "com.example.wristpane", "com.example.wristpane.watchkitapp", "com.example.wristpane.watchkitapp.widgets"
+            ])
+            XCTAssertThrowsError(try plan.validateProfiles(["com.example.wristpane": Data([1])]))
+            XCTAssertNoThrow(try plan.validateProfiles(Dictionary(uniqueKeysWithValues: plan.requiredBundleIDs.map { ($0, Data([1])) })))
+        }
+    }
+
+    func testLegacyWatchLayoutAndUnrelatedPlugin() throws {
+        try withTemporaryApp { host in
+            let watch = host.appendingPathComponent("Watch/LegacyWatch.app")
+            let clip = host.appendingPathComponent("PlugIns/AppClip.app")
+            try writeBundle(host, identifier: "com.example.app")
+            try writeBundle(watch, identifier: "com.example.app.watch", extra: [
+                "WKCompanionAppBundleIdentifier": "com.example.app"
+            ])
+            try writeBundle(clip, identifier: "com.example.app.clip")
+            let plan = try EmberWatchBundleInspector.inspect(iphoneApp: host)
+            XCTAssertEqual(plan.targets.map(\.kind), [.iphoneApp, .watchApp])
+        }
+    }
+
+    func testWrongHostCompanionIsRejectedBeforeSigning() throws {
+        try withTemporaryApp { host in
+            let watch = host.appendingPathComponent("PlugIns/WrongWatch.app")
+            try writeBundle(host, identifier: "com.example.app")
+            try writeBundle(watch, identifier: "com.example.app.watch", extra: [
+                "WKCompanionAppBundleIdentifier": "com.someone.else"
+            ])
+            XCTAssertThrowsError(try EmberWatchBundleInspector.inspect(iphoneApp: host))
+        }
+    }
+
+    func testWatchArchivePreflightRejectsTraversalAndLimitsPlistSize() throws {
+        XCTAssertTrue(try EmberWatchArchivePolicy.shouldReadInfoPlist("Payload/WristPane.app/PlugIns/Watch.app/PlugIns/Widgets.appex/Info.plist", size: 500))
+        XCTAssertTrue(try EmberWatchArchivePolicy.shouldReadInfoPlist("Payload/WristPane.app/Watch/Legacy.app/Info.plist", size: 500))
+        XCTAssertFalse(try EmberWatchArchivePolicy.shouldReadInfoPlist("Payload/WristPane.app/Assets.car", size: 500))
+        for bad in ["../../Library/Preferences/private.plist", "/Payload/App.app/Info.plist", "Payload/../App.app/Info.plist", "Payload//App.app/Info.plist", "Payload\\App.app\\Info.plist"] {
+            XCTAssertThrowsError(try EmberWatchArchivePolicy.shouldReadInfoPlist(bad, size: 100))
+        }
+        XCTAssertThrowsError(try EmberWatchArchivePolicy.shouldReadInfoPlist("Payload/WristPane.app/Info.plist", size: 1_048_577))
+    }
+
+    private func withTemporaryApp(_ body: (URL) throws -> Void) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try body(root.appendingPathComponent("Host.app"))
+    }
+
+    private func writeBundle(_ directory: URL, identifier: String, extra: [String: Any] = [:]) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var info: [String: Any] = ["CFBundleIdentifier": identifier]
+        info.merge(extra) { _, replacement in replacement }
+        try plist(info).write(to: directory.appendingPathComponent("Info.plist"))
+    }
 }

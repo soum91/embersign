@@ -75,12 +75,16 @@ jobs:
       - name: Publish installable package for personal signing
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0-build.${{ github.run_number }}
-          name: EmberSign 0.2.0 build ${{ github.run_number }}
+          tag_name: v0.2.1-build.${{ github.run_number }}
+          name: EmberSign 0.2.1 build ${{ github.run_number }}
           make_latest: true
           fail_on_unmatched_files: true
           body: |
-            EmberSign 0.2.0 development build for iOS 16 and later.
+            EmberSign 0.2.1 development build for iOS 16 and later.
+
+            New: Apple Watch IPA preflight under Tools. Inspect Watch companions,
+            WidgetKit extensions, and the distinct signing targets before signing.
+            Direct Apple Watch signing and installation are NOT yet implemented.
 
             Adds multiple Apple Account sessions, 2FA, on-device free/paid development provisioning, account/team quotas, certificate/App ID/profile management, paired-device app inventory, uninstall and portal cleanup, automatic re-sign/reinstall attempts, and error-code diagnostics with online issue lookup.
 

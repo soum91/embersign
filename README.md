@@ -22,6 +22,12 @@ An iOS 16+ app for signing and customizing IPAs on device, managing pairing file
 
 ## Current limits
 
+### Apple Watch IPA inspection
+
+EmberSign 0.2.1 adds an Apple Watch preflight screen under Tools. It can inspect an imported IPA for modern `PlugIns/*.app` and older `Watch/*.app` companions, list the Watch app and WidgetKit signing targets, and identify the separate profiles required for each target. This is **read-only inspection**, not Watch signing or Watch installation. The companion signing engine, Apple Watch device registration, and watchOS installation transport still need implementation and physical Watch testing. Never install a Watch IPA signed with an iPhone-only profile and expect its complications to work.
+
+This feature is included in the normal `main` releases and existing FlareStore source, so an additional repo is not required. Updates still need to be re-signed with the same certificate as the installed app to preserve its data.
+
 Apple Account authentication and provisioning depend on Apple's private developer-service behavior and Anisette. Apple can change either flow without notice, public Anisette services can be unavailable, and repeated failed sign-ins can be rate-limited. EmberSign never stores the Apple Account password. Auth sessions and generated signing keys are stored in the iOS Keychain.
 
 Automatic refresh is best-effort. iOS decides when background fetch runs, and reinstallation requires the matching pairing file and a reachable LocalDevVPN tunnel. Open EmberSign periodically and use **Refresh tracked apps now** if iOS has not granted background time.

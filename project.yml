@@ -21,6 +21,9 @@ packages:
   Zip:
     url: https://github.com/marmelroy/Zip
     exactVersion: 2.1.2
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation
+    exactVersion: 0.9.20
   SWCompression:
     url: https://github.com/tsolomko/SWCompression
     exactVersion: 4.8.7
@@ -98,6 +101,8 @@ targets:
       product: IDeviceSwift
     - package: Zip
       product: Zip
+    - package: ZIPFoundation
+      product: ZIPFoundation
     - package: SWCompression
       product: SWCompression
     - package: Vapor

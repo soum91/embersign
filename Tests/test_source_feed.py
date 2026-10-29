@@ -24,7 +24,7 @@ class SourceFeedTests(unittest.TestCase):
         )
         self.next_build = str(latest_build + 1)
         self.metadata = {
-            "version": "0.2.0", "build": self.next_build, "size": 19000123,
+            "version": "0.2.1", "build": self.next_build, "size": 19000123,
             "bundle_identifier": "com.soum91.embersign",
         }
 
@@ -32,9 +32,9 @@ class SourceFeedTests(unittest.TestCase):
         result = update_feed(copy.deepcopy(self.feed), self.metadata, "soum91/embersign", "2026-10-25")
         app = result["apps"][0]
         self.assertEqual(app["versions"][0]["buildVersion"], self.next_build)
-        self.assertEqual(app["version"], f"0.2.0.{self.next_build}")
+        self.assertEqual(app["version"], f"0.2.1.{self.next_build}")
         self.assertEqual(app["size"], 19000123)
-        self.assertTrue(app["downloadURL"].endswith(f"/v0.2.0-build.{self.next_build}/EmberSign.ipa"))
+        self.assertTrue(app["downloadURL"].endswith(f"/v0.2.1-build.{self.next_build}/EmberSign.ipa"))
         self.assertTrue(any(version["buildVersion"] == "4" for version in app["versions"]))
         self.assertIn("Apple Account", app["localizedDescription"])
 
