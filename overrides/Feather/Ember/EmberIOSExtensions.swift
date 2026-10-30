@@ -39,6 +39,65 @@ final class EmberIOSExtensionsModel: ObservableObject {
     @Published var status = "Choose an IPA containing an iOS keyboard, Share extension, or widget."
     @Published var bundleIDs: [String] = []
     @Published var busy = false
+    @Published var signingMethod = 0 // 0 = imported, 1 = Apple developer account
+    @Published var certificateFile: URL?
+    @Published var profileFiles: [URL] = []
+    @Published var p12Password = ""
+    @Published var importedProfiles: [EmberIOSProvisionProfile] = []
+    @Published var preflight: [String] = []
+    private var certificateData: Data?
+
+    func importCertificate(_ url: URL) {
+        do {
+            certificateData = try readScoped(url, maximum: 2_097_152)
+            certificateFile = url
+            preflight = []
+            status = "Imported certificate locally. Add the provision files covering each Aukkhor bundle."
+        } catch { status = error.localizedDescription }
+    }
+
+    func importProfiles(_ files: [URL]) {
+        do {
+            var entries = importedProfiles
+            for file in files {
+                let profile = try EmberIOSProvisionProfile.parse(readScoped(file, maximum: 524_288))
+                entries.removeAll(where: { $0.id == profile.id })
+                entries.append(profile)
+            }
+            importedProfiles = entries
+            profileFiles = files
+            preflight = []
+            status = "\(entries.count) local provisioning profile(s) loaded."
+        } catch { status = error.localizedDescription }
+    }
+
+    private func readScoped(_ url: URL, maximum: Int) throws -> Data {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: url)
+        guard !data.isEmpty && data.count <= maximum else {
+            throw EmberIOSProfileError.invalid("File missing or unexpectedly large.")
+        }
+        return data
+    }
+
+    func validateImported() {
+        do {
+            guard let p12 = certificateData else {
+                throw EmberIOSProfileError.invalid("Select your existing .p12 certificate.")
+            }
+            let udid = try? EmberPairingStore.read().udid
+            let result = try EmberIOSExistingSigner.resolve(
+                bundleIDs: bundleIDs, p12: p12, password: p12Password,
+                availableProfiles: importedProfiles, deviceUDID: udid ?? nil
+            )
+            preflight = result.descriptions
+            status = "All \(bundleIDs.count) targets have compatible profiles. Ready for signing."
+        } catch {
+            preflight = []
+            status = error.localizedDescription
+        }
+    }
 
     func inspect(_ input: URL) async {
         source = input
@@ -78,14 +137,31 @@ final class EmberIOSExtensionsModel: ObservableObject {
                 throw EmberIOSExtensionInstallError.invalidStructure("There is no embedded iOS extension.")
             }
             bundleIDs = plan.bundles.map(\.id)
-            status = "Provisioning \(plan.bundles.count) Apple App IDs and individual profiles…"
-            let identity = try await EmberAccountManager.shared.provisionIOSExtensionBundleSet(
-                bundleIDs: bundleIDs
-            )
+            let identity: EmberWatchSigningIdentity
+            if signingMethod == 0 {
+                guard let p12 = certificateData else {
+                    throw EmberIOSProfileError.invalid("Import your existing .p12 certificate first.")
+                }
+                let udid = try? EmberPairingStore.read().udid
+                let resolved = try EmberIOSExistingSigner.resolve(
+                    bundleIDs: bundleIDs, p12: p12, password: p12Password,
+                    availableProfiles: importedProfiles, deviceUDID: udid ?? nil
+                )
+                identity = resolved.identity
+                preflight = resolved.descriptions
+                status = "Existing certificate and profiles validated. No Apple Account provisioning needed."
+            } else {
+                status = "Provisioning \(plan.bundles.count) Apple App IDs and individual profiles…"
+                identity = try await EmberAccountManager.shared.provisionIOSExtensionBundleSet(
+                    bundleIDs: bundleIDs
+                )
+            }
+            let p12PasswordForSign = signingMethod == 0 ? p12Password : ""
             status = "Signing every extension and the containing app…"
             let signed = try await Task.detached {
                 try emberSignIOSExtensionBundle(host: host, plan: plan,
-                                                identity: identity, root: root)
+                                                identity: identity, root: root,
+                                                password: p12PasswordForSign)
             }.value
             status = "Installing verified app and keyboard extensions…"
             let installer = InstallationProxy(viewModel: InstallerStatusViewModel(isIdevice: true))
@@ -101,6 +177,8 @@ final class EmberIOSExtensionsModel: ObservableObject {
 struct EmberIOSExtensionsView: View {
     @StateObject private var model = EmberIOSExtensionsModel()
     @State private var importing = false
+    @State private var importingCert = false
+    @State private var importingProfiles = false
 
     var body: some View {
         List {
@@ -118,24 +196,67 @@ struct EmberIOSExtensionsView: View {
                         Text(bundle).font(.callout.monospaced()).textSelection(.enabled)
                     }
                 }
+                Picker("Signing method", selection: $model.signingMethod) {
+                    Text("Existing certificate").tag(0)
+                    Text("Apple developer account").tag(1)
+                }
+                .pickerStyle(.segmented)
+                if model.signingMethod == 0 {
+                    Button("Import existing .p12") { importingCert = true }
+                    if let certificateFile = model.certificateFile {
+                        Text(certificateFile.lastPathComponent)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    SecureField("P12 password (if any)", text: $model.p12Password)
+                    Button("Import provisioning profiles (.mobileprovision)") {
+                        importingProfiles = true
+                    }
+                    Text("\(model.importedProfiles.count) provisioning profile(s) imported")
+                        .font(.caption)
+                    Button("Validate profiles against each bundle ID") {
+                        model.validateImported()
+                    }.disabled(model.bundleIDs.isEmpty)
+                    ForEach(model.preflight, id: \.self) { item in
+                        Text(item).font(.caption.monospaced())
+                            .foregroundStyle(.green)
+                    }
+                } else {
+                    Text("Apple Account provisioning creates or uses App IDs, profiles and certificates. It can fail when your Personal Team quota is exhausted.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Button {
                     Task { await model.signAndInstall() }
                 } label: {
                     if model.busy {
                         Label("Processing…", systemImage: "hourglass")
                     } else {
-                        Label("Provision all, sign and install", systemImage: "checkmark.seal")
+                        Label(model.signingMethod == 0 ? "Sign with existing certificate and install" : "Provision all, sign and install",
+                              systemImage: "checkmark.seal")
                     }
                 }.disabled(model.busy || model.bundleIDs.count < 2)
                 Text(model.status).font(.footnote).textSelection(.enabled)
             }
             Section("Signing requirements") {
                 Text("An iOS app containing a keyboard or Share extension has multiple bundle identifiers. The host app's provisioning profile cannot simply be reused for its extensions.")
-                Text("EmberSign creates matching App IDs and individual profiles using your authorized Apple Account, then signs the nested targets using its multi-profile signing engine. This may use several Personal Team App ID slots.")
+                Text("Existing certificate mode never creates App IDs, uses free development slots or contacts the Apple Developer Portal. It validates imported profiles for each bundle and signs using the supplied certificate.")
                 Text("If Apple rejects the registration or provisioning request, EmberSign shows the actual failure rather than exporting an IPA that cannot install.")
             }.font(.footnote).foregroundStyle(.secondary)
         }
         .navigationTitle("iOS app extensions")
+.fileImporter(isPresented: $importingCert,
+                      allowedContentTypes: [UTType(filenameExtension: "p12") ?? .data, .data],
+                      allowsMultipleSelection: false) { outcome in
+            do {
+                guard let file = try outcome.get().first else { return }
+                model.importCertificate(file)
+            } catch { model.status = error.localizedDescription }
+        }
+        .fileImporter(isPresented: $importingProfiles,
+                      allowedContentTypes: [UTType(filenameExtension: "mobileprovision") ?? .data, .data],
+                      allowsMultipleSelection: true) { outcome in
+            do { model.importProfiles(try outcome.get()) }
+            catch { model.status = error.localizedDescription }
+        }
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: [.data, .zip, UTType(filenameExtension: "ipa") ?? .data],
                       allowsMultipleSelection: false) { outcome in
@@ -217,7 +338,8 @@ private func emberUnpackIOSBundle(_ source: URL, at root: URL) throws -> (URL, E
 }
 
 private func emberSignIOSExtensionBundle(
-    host: URL, plan: EmberIOSBundlePlan, identity: EmberWatchSigningIdentity, root: URL
+    host: URL, plan: EmberIOSBundlePlan, identity: EmberWatchSigningIdentity, root: URL,
+    password: String
 ) throws -> URL {
     let manager = FileManager.default
     let cert = root.appendingPathComponent("IOSSigning.p12")
@@ -232,7 +354,7 @@ private func emberSignIOSExtensionBundle(
         profilePaths.append(profile.path)
     }
     guard Zsign.sign(appPath: host.path, provisionPath: profilePaths.joined(separator: "\n"),
-                     p12Path: cert.path, p12Password: "", removeProvision: true) else {
+                     p12Path: cert.path, p12Password: password, removeProvision: true) else {
         throw EmberIOSExtensionInstallError.signingFailed
     }
     for target in plan.bundles {
