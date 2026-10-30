@@ -96,11 +96,14 @@ enum EmberIOSExistingSigner {
         )
         guard result == errSecSuccess,
               let entries = identities as? [[String: Any]],
-              let identity = entries.first?[kSecImportItemIdentity as String] as? SecIdentity else {
+              let rawIdentity = entries.first?[kSecImportItemIdentity as String] else {
             throw EmberIOSProfileError.invalid(
                 "The selected certificate's .p12 cannot be opened. Re-import it with its correct password."
             )
         }
+        // Security framework guarantees kSecImportItemIdentity contains SecIdentity.
+        // Swift 6 rejects conditional casts to CoreFoundation reference types.
+        let identity = rawIdentity as! SecIdentity
         var certificate: SecCertificate?
         guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess,
               let certificate else {
