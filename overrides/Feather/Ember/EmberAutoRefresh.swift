@@ -15,7 +15,7 @@ final class EmberAutoRefreshManager: ObservableObject {
         get { UserDefaults.standard.bool(forKey: "EmberSign.autoRefresh") }
         set {
             UserDefaults.standard.set(newValue, forKey: "EmberSign.autoRefresh")
-            UIApplication.shared.setMinimumBackgroundFetchInterval(newValue ? 6 * 60 * 60 : UIApplication.backgroundFetchIntervalNever)
+            configure()
             objectWillChange.send()
         }
     }
@@ -26,26 +26,22 @@ final class EmberAutoRefreshManager: ObservableObject {
     }
 
     func configure() {
-        UIApplication.shared.setMinimumBackgroundFetchInterval(enabled ? 6 * 60 * 60 : UIApplication.backgroundFetchIntervalNever)
+        let shouldFetch = enabled || EmberWatchRefreshManager.shared.enabled
+        UIApplication.shared.setMinimumBackgroundFetchInterval(shouldFetch ? 6 * 60 * 60 : UIApplication.backgroundFetchIntervalNever)
     }
 
     func refreshAll(force: Bool = false) async -> Bool {
         guard !isRunning else { return false }
         isRunning = true
         defer { isRunning = false }
-        let apps = signedApps().filter { app in
+        let apps: [Signed] = (enabled || force) ? signedApps().filter { app in
             guard let bundleID = app.identifier,
                   bundleID != Bundle.main.bundleIdentifier,
                   EmberAccountManager.shared.accountID(for: bundleID) != nil else { return false }
             if force { return true }
             guard let expiry = Storage.shared.getCertificate(from: app)?.expiration else { return true }
             return expiry.timeIntervalSinceNow <= Double(thresholdDays) * 86_400
-        }
-        guard !apps.isEmpty else {
-            status = "No tracked apps need refresh."
-            lastRun = Date(); UserDefaults.standard.set(lastRun, forKey: "EmberSign.lastRefresh")
-            return true
-        }
+        } : []
 
         var failures = 0
         for app in apps {
@@ -65,9 +61,17 @@ final class EmberAutoRefreshManager: ObservableObject {
                 EmberErrorCenter.shared.record(error, operation: "Auto refresh \(bundleID)")
             }
         }
+        let watchResult = await EmberWatchRefreshManager.shared.refreshIfNeeded(force: force && EmberWatchRefreshManager.shared.enabled)
+        if case .failed = watchResult { failures += 1 }
         lastRun = Date()
         UserDefaults.standard.set(lastRun, forKey: "EmberSign.lastRefresh")
-        status = failures == 0 ? "Refreshed and reinstalled \(apps.count) app(s)." : "Finished with \(failures) failure(s). Open Error diagnostics for details."
+        if failures > 0 {
+            status = "Finished with \(failures) failure(s). Open Error diagnostics and Watch refresh status."
+        } else if apps.isEmpty, case .skipped = watchResult {
+            status = "No tracked apps need refresh."
+        } else {
+            status = "Refreshed \(apps.count) iPhone app(s)\(watchResult == .success ? " and the Apple Watch companion" : "")."
+        }
         return failures == 0
     }
 

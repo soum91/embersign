@@ -12,9 +12,9 @@ APP_DESCRIPTION = (
     "EmberSign signs IPAs using imported certificates or Apple Account provisioning, "
     "supports multiple saved Apple Accounts, compatible tweak injection, pairing-file "
     "management, JIT preparation, paired-device app inventory, best-effort app refresh, "
-    "Apple Watch IPA signing-target inspection, and error diagnostics with online lookup. "
-    "Watch installation is not yet supported. Apple services and background refresh "
-    "require device testing; a pairing tunnel is needed for installed-app inventory."
+    "experimental Apple Watch installation, tracked Watch re-signing and GitHub update "
+    "downloads, and error diagnostics with online lookup. Apple Watch installation "
+    "and background refresh require real-device testing and an active pairing tunnel."
 )
 
 
@@ -37,7 +37,7 @@ def update_feed(feed: dict, metadata: dict, repository: str, release_date: str) 
     notes = (
         f"EmberSign {release_version} build {build}: Apple Accounts, signing and provisioning, "
         "paired-device app inventory, quota estimates, refresh controls, JIT tools, "
-        "Apple Watch IPA preflight (no Watch installation yet), and diagnostics."
+        "experimental Watch installation and refresh, GitHub Watch updates, and diagnostics."
     )
     entry = {
         "version": version,

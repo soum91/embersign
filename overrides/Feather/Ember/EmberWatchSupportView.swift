@@ -13,6 +13,346 @@ private final class EmberWatchProgress: ObservableObject {
     @Published var status = "Connect LocalDevVPN and use your saved remote pairing file."
 }
 
+struct EmberWatchTrackedApp: Codable {
+    var bundleID: String
+    var version: String
+    var build: String
+    var accountID: String
+    var expiresAt: Date
+    var expirationEstimated: Bool
+    var lastInstalled: Date
+    var sourceURL: String
+}
+
+struct EmberWatchRelease: Decodable {
+    let version: String
+    let buildVersion: String
+    let downloadURL: String
+    let size: Int?
+}
+
+private struct EmberWatchFeed: Decodable {
+    struct App: Decodable {
+        let bundleIdentifier: String
+        let versions: [EmberWatchRelease]?
+    }
+    let apps: [App]
+}
+
+enum EmberWatchRefreshOutcome: Equatable {
+    case skipped, success, failed
+}
+
+/// Watch companions require a separately provisioned Watch and widget, so they
+/// must never go through the iPhone-only auto-refresh signing route.
+@MainActor
+final class EmberWatchRefreshManager: ObservableObject {
+    static let shared = EmberWatchRefreshManager()
+    static let defaultSource = "https://raw.githubusercontent.com/soum91/wristpane/main/source.json"
+
+    @Published private(set) var tracked: EmberWatchTrackedApp?
+    @Published private(set) var latestRelease: EmberWatchRelease?
+    @Published private(set) var isWorking = false
+    @Published private(set) var isChecking = false
+    @Published var status = "Install a Watch IPA once with EmberSign to save it for future refreshes."
+
+    private let trackingKey = "EmberSign.watch.trackedApp"
+    private let refreshEnabledKey = "EmberSign.watch.autoRefresh"
+    private let refreshDaysKey = "EmberSign.watch.refreshDays"
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: trackingKey) {
+            tracked = try? JSONDecoder().decode(EmberWatchTrackedApp.self, from: data)
+        }
+    }
+
+    var enabled: Bool {
+        get { UserDefaults.standard.bool(forKey: refreshEnabledKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: refreshEnabledKey)
+            EmberAutoRefreshManager.shared.configure()
+            objectWillChange.send()
+        }
+    }
+
+    var thresholdDays: Int {
+        get {
+            let saved = UserDefaults.standard.integer(forKey: refreshDaysKey)
+            return (1...3).contains(saved) ? saved : 2
+        }
+        set { UserDefaults.standard.set(newValue, forKey: refreshDaysKey); objectWillChange.send() }
+    }
+
+    private var cachedIPA: URL {
+        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("EmberSign-WatchRefresh", isDirectory: true)
+        return folder.appendingPathComponent("tracked-unsigned.ipa")
+    }
+
+    private var due: Bool {
+        guard let tracked else { return false }
+        return tracked.expiresAt.timeIntervalSinceNow <= Double(thresholdDays) * 86_400
+    }
+
+    func refreshIfNeeded(force: Bool = false) async -> EmberWatchRefreshOutcome {
+        guard (enabled || force), let tracked else { return .skipped }
+        guard force || due else { return .skipped }
+        guard !isWorking else { return .skipped }
+        guard FileManager.default.fileExists(atPath: cachedIPA.path) else {
+            status = "The saved unsigned IPA is missing. Reinstall from GitHub once to track it again."
+            return .failed
+        }
+        guard EmberAccountManager.shared.selectedAccountID == tracked.accountID else {
+            status = "Select the original Apple Account (\(tracked.accountID)) before renewing the Watch signing identity."
+            return .failed
+        }
+        do {
+            try await installAndTrack(file: cachedIPA, sourceURL: tracked.sourceURL)
+            return .success
+        } catch {
+            status = "Watch refresh failed: \(error.localizedDescription)"
+            EmberErrorCenter.shared.record(error, operation: "Watch auto refresh")
+            return .failed
+        }
+    }
+
+    func checkForUpdates(sourceURL: String) async {
+        guard !isChecking else { return }
+        isChecking = true
+        defer { isChecking = false }
+        latestRelease = nil
+        do {
+            let source = try Self.validatedSource(sourceURL)
+            let (data, _) = try await URLSession.shared.data(from: source)
+            guard data.count <= 1_048_576 else { throw EmberError.message("The GitHub source exceeds 1 MB.") }
+            let feed = try JSONDecoder().decode(EmberWatchFeed.self, from: data)
+            let bundle = tracked?.bundleID ?? "com.soum91.wristpane"
+            guard let app = feed.apps.first(where: { $0.bundleIdentifier == bundle }),
+                  let release = app.versions?.max(by: { Self.isNewer($1, than: $0) }) else {
+                throw EmberError.message("No Watch IPA release found for \(bundle) in this source.")
+            }
+            guard try Self.validatedDownload(release.downloadURL) != nil else {
+                throw EmberError.message("The source has an invalid release download URL.")
+            }
+            if let tracked, !Self.isNewer(release, than: tracked) {
+                status = "WristPane is up to date (build \(tracked.build))."
+            } else {
+                latestRelease = release
+                status = "GitHub has \(release.version) (build \(release.buildVersion)). Ready to download and sign."
+            }
+        } catch {
+            status = "GitHub update check failed: \(error.localizedDescription)"
+            EmberErrorCenter.shared.record(error, operation: "Watch GitHub update check")
+        }
+    }
+
+    func installLatestFromGitHub(sourceURL: String) async throws {
+        guard !isWorking else { throw EmberError.message("Another Watch operation is already running.") }
+        if latestRelease == nil { await checkForUpdates(sourceURL: sourceURL) }
+        guard let release = latestRelease else {
+            throw EmberError.message("No newer release was found. Use the refresh button if you need to renew the current build.")
+        }
+        guard let url = try Self.validatedDownload(release.downloadURL) else {
+            throw EmberError.message("Invalid GitHub release address.")
+        }
+        status = "Downloading unsigned Watch IPA from GitHub…"
+        let (download, _) = try await URLSession.shared.download(from: url)
+        let bytes = (try FileManager.default.attributesOfItem(atPath: download.path)[.size] as? NSNumber)?.int64Value ?? 0
+        guard bytes > 0, bytes <= 128 * 1024 * 1024 else {
+            throw EmberError.message("The release IPA is empty or larger than 128 MB.")
+        }
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("EmberWatchGitHub-\(UUID()).ipa")
+        try FileManager.default.copyItem(at: download, to: copy)
+        defer { try? FileManager.default.removeItem(at: copy) }
+        try await installAndTrack(file: copy, sourceURL: sourceURL)
+        latestRelease = nil
+    }
+
+    func installAndTrack(file: URL, sourceURL: String) async throws {
+        guard !isWorking else { throw EmberError.message("Another Watch operation is already running.") }
+        guard let account = EmberAccountManager.shared.selectedAccount else {
+            throw EmberError.message("Sign into an Apple Account in EmberSign first.")
+        }
+        if let tracked, tracked.accountID != account.id {
+            throw EmberError.message("This Watch app was last signed using \(tracked.accountID). Select that account to preserve its signing identity.")
+        }
+        isWorking = true
+        defer { isWorking = false }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("EmberWatchSigning-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("source.ipa")
+        let access = file.startAccessingSecurityScopedResource()
+        defer { if access { file.stopAccessingSecurityScopedResource() } }
+        try FileManager.default.copyItem(at: file, to: input)
+
+        func progress(_ message: String) {
+            status = message
+            EmberWatchProgress.shared.status = message
+        }
+        progress("Finding paired Watch through LocalDevVPN…")
+        let endpoint = UserDefaults.standard.string(forKey: "EmberSign.jit.endpoint.deviceIP") ?? "10.7.0.1"
+        let port = UserDefaults.standard.integer(forKey: "EmberSign.jit.endpoint.port")
+        let pairingPort = port == 0 ? 49152 : port
+        guard (1...65535).contains(pairingPort) else { throw EmberError.message("Invalid remote pairing port.") }
+        let (phoneID, watchID) = try await Task.detached(priority: .userInitiated) {
+            try emberDiscoverSingleWatch(deviceIP: endpoint, port: UInt16(pairingPort))
+        }.value
+
+        progress("Extracting and validating iPhone and Watch IPA…")
+        let (host, plan) = try await Task.detached(priority: .userInitiated) {
+            try emberExtractWatchIPA(at: input, into: root)
+        }.value
+        guard plan.hasWatchCompanion else { throw EmberError.message("The IPA has no embedded Watch app.") }
+        if let tracked, tracked.bundleID != plan.targets[0].bundleID {
+            throw EmberError.message("The selected IPA is for another app. The existing Watch refresh tracking was preserved.")
+        }
+        progress("Obtaining separate iPhone, Watch and widget provisioning profiles…")
+        let identity = try await EmberAccountManager.shared.provisionWatchCompanion(plan: plan,
+                                                                                    iphoneUDID: phoneID, watchUDID: watchID)
+        let exactExpiration = Self.profileExpiration(identity.profiles)
+        let estimatedExpiration = Date().addingTimeInterval(7 * 86_400)
+        progress("Signing all iPhone and Watch targets…")
+        let package = try await Task.detached(priority: .userInitiated) {
+            try emberSignWatchIPA(host: host, plan: plan, identity: identity, root: root)
+        }.value
+        progress("Installing the iPhone host…")
+        let installer = InstallationProxy(viewModel: InstallerStatusViewModel(isIdevice: true))
+        try await installer.install(at: package)
+        progress("Installing the paired Apple Watch companion…")
+        let hostID = emberSavedWatchIdentifier("EmberSign.watch.hostID")
+        let systemBUID = emberSavedWatchIdentifier("EmberSign.watch.systemBUID")
+        _ = try await Task.detached(priority: .userInitiated) {
+            try emberStreamWatchBundle(host: host, plan: plan, pairingURL: EmberPairingStore.url,
+                                       deviceIP: endpoint, devicePort: UInt16(pairingPort),
+                                       hostID: hostID, systemBUID: systemBUID)
+        }.value
+
+        let plist = try PropertyListSerialization.propertyList(from:
+            Data(contentsOf: host.appendingPathComponent("Info.plist")), format: nil) as? [String: Any]
+        let version = plist?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let build = plist?["CFBundleVersion"] as? String ?? "unknown"
+        let record = EmberWatchTrackedApp(bundleID: plan.targets[0].bundleID, version: version,
+                                          build: build, accountID: account.id,
+                                          expiresAt: exactExpiration ?? estimatedExpiration,
+                                          expirationEstimated: exactExpiration == nil,
+                                          lastInstalled: Date(), sourceURL: sourceURL)
+        do {
+            try remember(input, record: record)
+            progress("Watch installed and saved for refresh (build \(build)).")
+        } catch {
+            progress("Watch installed, but saving its refresh copy failed: \(error.localizedDescription)")
+            EmberErrorCenter.shared.record(error, operation: "Save Watch refresh IPA")
+        }
+    }
+
+    private func remember(_ file: URL, record: EmberWatchTrackedApp) throws {
+        let manager = FileManager.default
+        let destination = cachedIPA
+        try manager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let replacement = destination.deletingLastPathComponent().appendingPathComponent("stage-\(UUID()).ipa")
+        try manager.copyItem(at: file, to: replacement)
+        defer { try? manager.removeItem(at: replacement) }
+        if manager.fileExists(atPath: destination.path) {
+            _ = try manager.replaceItemAt(destination, withItemAt: replacement)
+        } else {
+            try manager.moveItem(at: replacement, to: destination)
+        }
+        try manager.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                                  ofItemAtPath: destination.path)
+        UserDefaults.standard.set(try JSONEncoder().encode(record), forKey: trackingKey)
+        tracked = record
+    }
+
+    private static func validatedSource(_ value: String) throws -> URL {
+        guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              url.scheme == "https", url.host == "raw.githubusercontent.com",
+              url.pathExtension == "json", url.user == nil, url.password == nil else {
+            throw EmberError.message("Use a public raw.githubusercontent.com HTTPS source.json URL.")
+        }
+        return url
+    }
+
+    private static func validatedDownload(_ value: String) throws -> URL? {
+        guard let url = URL(string: value), url.scheme == "https", url.host == "github.com",
+              url.path.contains("/releases/download/"), url.pathExtension == "ipa",
+              url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+
+    private static func isNewer(_ candidate: EmberWatchRelease, than current: EmberWatchRelease) -> Bool {
+        compareVersions(candidate.buildVersion, current.buildVersion) > 0
+    }
+
+    private static func isNewer(_ candidate: EmberWatchRelease, than current: EmberWatchTrackedApp) -> Bool {
+        compareVersions(candidate.buildVersion, current.build) > 0
+    }
+
+    private static func compareVersions(_ lhs: String, _ rhs: String) -> Int {
+        let left = lhs.split(separator: ".").compactMap { Int($0) }
+        let right = rhs.split(separator: ".").compactMap { Int($0) }
+        guard !left.isEmpty, !right.isEmpty else { return lhs == rhs ? 0 : 1 }
+        for index in 0..<max(left.count, right.count) {
+            let a = index < left.count ? left[index] : 0
+            let b = index < right.count ? right[index] : 0
+            if a != b { return a < b ? -1 : 1 }
+        }
+        return 0
+    }
+
+    private static func profileExpiration(_ profiles: [String: Data]) -> Date? {
+        // Apple's CMS-wrapped mobileprovision commonly contains an XML plist.
+        // Unknown formats fall back to an explicitly labelled seven-day estimate.
+        let dates = profiles.values.compactMap { data -> Date? in
+            let text = String(decoding: data, as: UTF8.self)
+            guard let start = text.range(of: "<?xml"),
+                  let end = text.range(of: "</plist>", range: start.lowerBound..<text.endIndex) else { return nil }
+            let plist = Data(text[start.lowerBound..<end.upperBound].utf8)
+            let values = try? PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any]
+            return values?["ExpirationDate"] as? Date
+        }
+        return dates.count == profiles.count ? dates.min() : nil
+    }
+}
+
+private func emberSavedWatchIdentifier(_ key: String) -> String {
+    if let saved = UserDefaults.standard.string(forKey: key), UUID(uuidString: saved) != nil { return saved }
+    let id = UUID().uuidString
+    UserDefaults.standard.set(id, forKey: key)
+    return id
+}
+
+private func emberConsumeWatchString(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
+    guard let pointer else { return nil }
+    defer { embersign_pair_free_string(pointer) }
+    return String(cString: pointer)
+}
+
+private func emberDiscoverSingleWatch(deviceIP: String, port: UInt16) throws -> (String, String) {
+    let pairing = try EmberPairingStore.read()
+    guard pairing.kind == .remote else {
+        throw EmberError.message("Import an RSD remote pairing record under Tools > Pairing file.")
+    }
+    var devices: UnsafeMutablePointer<CChar>?
+    var phone: UnsafeMutablePointer<CChar>?
+    var detail: UnsafeMutablePointer<CChar>?
+    let code = EmberPairingStore.url.path.withCString { pairingPath in
+        deviceIP.withCString { ip in
+            embersign_watch_discover(pairingPath, ip, port, &phone, &devices, &detail)
+        }
+    }
+    let phoneID = emberConsumeWatchString(phone)
+    let list = emberConsumeWatchString(devices)
+    let issue = emberConsumeWatchString(detail)
+    guard code == 0 else { throw EmberError.message(issue ?? "Watch discovery failed") }
+    guard let phoneID, !phoneID.isEmpty else { throw EmberError.message("Cannot identify the paired iPhone.") }
+    let watches = (list ?? "").split(separator: ",").map(String.init)
+    guard watches.count == 1 else {
+        throw EmberError.message("Expected one reachable Apple Watch; found \(watches.count). Unlock the Watch and connect LocalDevVPN.")
+    }
+    return (phoneID, watches[0])
+}
+
 /// Inspect and transfer an already provisioned Watch app via the companion
 /// proxy. A Watch signing profile is distinct from an iPhone signing profile.
 struct EmberWatchSupportView: View {
@@ -23,14 +363,15 @@ struct EmberWatchSupportView: View {
     @State private var isInspecting = false
     @State private var isDiscovering = false
     @State private var isInstalling = false
-    @State private var isSigning = false
     @State private var watchIDs: [String] = []
     @State private var iphoneUDID: String?
     @State private var plan: EmberWatchBundlePlan?
     @State private var errorText: String?
     @ObservedObject private var watchProgress = EmberWatchProgress.shared
+    @ObservedObject private var watchRefresh = EmberWatchRefreshManager.shared
     @AppStorage("EmberSign.jit.endpoint.deviceIP") private var deviceIP = "10.7.0.1"
     @AppStorage("EmberSign.jit.endpoint.port") private var devicePort = 49152
+    @AppStorage("EmberSign.watch.feedURL") private var feedURL = EmberWatchRefreshManager.defaultSource
 
     var body: some View {
         List {
@@ -90,7 +431,7 @@ struct EmberWatchSupportView: View {
                         Spacer()
                         if isDiscovering { ProgressView() }
                     }
-                }.disabled(isDiscovering || isInstalling || isSigning)
+                }.disabled(isDiscovering || isInstalling || watchRefresh.isWorking)
                 ForEach(watchIDs, id: \.self) { id in
                     LabeledContent("Paired Watch UDID", value: id)
                         .font(.caption).textSelection(.enabled)
@@ -115,11 +456,11 @@ struct EmberWatchSupportView: View {
                         HStack {
                             Label("Provision, sign and install IPA", systemImage: "checkmark.shield")
                             Spacer()
-                            if isSigning { ProgressView() }
+                            if watchRefresh.isWorking { ProgressView() }
                         }
                     }
-                    .disabled(watchIDs.count != 1 || iphoneUDID == nil || isSigning || isInstalling || isDiscovering)
-                    if isSigning { ProgressView().padding(.vertical, 4) }
+                    .disabled(watchIDs.count != 1 || iphoneUDID == nil || watchRefresh.isWorking || isInstalling || isDiscovering)
+                    if watchRefresh.isWorking { ProgressView().padding(.vertical, 4) }
                     Text(watchProgress.status)
                         .font(.footnote).foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -135,6 +476,62 @@ struct EmberWatchSupportView: View {
                 }
             }
 
+            Section("Watch refresh and GitHub updates") {
+                if let saved = watchRefresh.tracked {
+                    LabeledContent("Tracked app", value: "\(saved.bundleID) (build \(saved.build))")
+                        .font(.footnote)
+                    LabeledContent(saved.expirationEstimated ? "Estimated expiry" : "Profile expiry",
+                                   value: saved.expiresAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.footnote)
+                    Toggle("Attempt automatic Watch refresh", isOn: Binding(
+                        get: { watchRefresh.enabled }, set: { watchRefresh.enabled = $0 }
+                    ))
+                    Picker("Refresh when remaining", selection: Binding(
+                        get: { watchRefresh.thresholdDays }, set: { watchRefresh.thresholdDays = $0 }
+                    )) {
+                        Text("1 day").tag(1)
+                        Text("2 days").tag(2)
+                        Text("3 days").tag(3)
+                    }
+                    Button {
+                        Task { _ = await watchRefresh.refreshIfNeeded(force: true) }
+                    } label: {
+                        Label("Re-sign and refresh Watch now", systemImage: "arrow.clockwise")
+                    }.disabled(watchRefresh.isWorking || isInstalling)
+                } else {
+                    Text("No Watch IPA is tracked yet. Install one through the Apple Account option above or download it below. EmberSign will save the unsigned IPA after the Watch install succeeds.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+
+                TextField("Public GitHub source.json URL", text: $feedURL)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button {
+                    Task { await watchRefresh.checkForUpdates(sourceURL: feedURL) }
+                } label: {
+                    HStack {
+                        Label("Check GitHub for Watch updates", systemImage: "arrow.down.circle")
+                        Spacer()
+                        if watchRefresh.isChecking { ProgressView() }
+                    }
+                }.disabled(watchRefresh.isChecking || watchRefresh.isWorking)
+
+                if let release = watchRefresh.latestRelease {
+                    Text("Available: \(release.version) (build \(release.buildVersion))")
+                        .font(.footnote)
+                    Button {
+                        Task {
+                            do { try await watchRefresh.installLatestFromGitHub(sourceURL: feedURL) }
+                            catch { showOperationError(error) }
+                        }
+                    } label: {
+                        Label("Download, sign and install on iPhone + Watch", systemImage: "applewatch")
+                    }.disabled(watchRefresh.isWorking || isInstalling)
+                }
+                Text(watchRefresh.status).font(.footnote).textSelection(.enabled)
+                Text("An unsigned Watch release needs separate iPhone, Watch and widget profiles. Automatic refresh is best-effort: iOS may stop background work or the LocalDevVPN tunnel may be unavailable. If it does not complete, open EmberSign and refresh manually. Never uninstall the working Watch app first.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+
             Section("Install already signed Watch companion") {
                 Button {
                     selection = .signed
@@ -145,7 +542,7 @@ struct EmberWatchSupportView: View {
                         Spacer()
                         if isInstalling { ProgressView() }
                     }
-                }.disabled(isDiscovering || isInstalling || isSigning)
+                }.disabled(isDiscovering || isInstalling || watchRefresh.isWorking)
                 Text(watchProgress.status).font(.footnote).textSelection(.enabled)
                 Label("Experimental Watch transport", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
@@ -285,53 +682,15 @@ struct EmberWatchSupportView: View {
     }
 
     private func signAndInstallIPA(_ file: URL) {
-        guard !isSigning else { return }
-        guard watchIDs.count == 1, let watchID = watchIDs.first,
-              let phoneID = iphoneUDID, (1...65535).contains(devicePort) else {
-            showOperationError(EmberError.message("Find exactly one paired Apple Watch using a valid LocalDevVPN endpoint before selecting an IPA."))
-            return
-        }
-        let endpoint = deviceIP
-        let port = devicePort
-        let hostID = Self.savedWatchIdentifier("EmberSign.watch.hostID")
-        let systemBUID = Self.savedWatchIdentifier("EmberSign.watch.systemBUID")
-        isSigning = true
+        guard !watchRefresh.isWorking else { return }
         errorText = nil
-        watchProgress.status = "Extracting Watch IPA…"
         Task {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent("EmberWatchSigning-\(UUID())", isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: root) }
             do {
-                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-                let (host, plan) = try await Task.detached(priority: .userInitiated) {
-                    try emberExtractWatchIPA(at: file, into: root)
-                }.value
-                guard plan.hasWatchCompanion else {
-                    throw EmberError.message("This IPA does not contain an Apple Watch companion.")
-                }
-                watchProgress.status = "Getting iPhone and Watch provisioning profiles from Apple…"
-                let signing = try await EmberAccountManager.shared.provisionWatchCompanion(
-                    plan: plan, iphoneUDID: phoneID, watchUDID: watchID
-                )
-                watchProgress.status = "Signing iPhone, Apple Watch and widgets…"
-                let package = try await Task.detached(priority: .userInitiated) {
-                    try emberSignWatchIPA(host: host, plan: plan, identity: signing, root: root)
-                }.value
-                watchProgress.status = "Installing the signed iPhone host…"
-                let installer = InstallationProxy(viewModel: InstallerStatusViewModel(isIdevice: true))
-                try await installer.install(at: package)
-                watchProgress.status = "Installing companion on paired Apple Watch…"
-                let message = try await Task.detached(priority: .userInitiated) {
-                    try emberStreamWatchBundle(host: host, plan: plan, pairingURL: EmberPairingStore.url,
-                                               deviceIP: endpoint, devicePort: UInt16(port),
-                                               hostID: hostID, systemBUID: systemBUID)
-                }.value
-                watchProgress.status = message
+                try await watchRefresh.installAndTrack(file: file, sourceURL: feedURL)
             } catch {
                 showOperationError(error)
                 EmberErrorCenter.shared.record(error, operation: "Apple Watch installation")
             }
-            isSigning = false
         }
     }
 

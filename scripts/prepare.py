@@ -278,7 +278,7 @@ extension SigningView {
         _ application: UIApplication,
         performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        guard EmberAutoRefreshManager.shared.enabled else {
+        guard EmberAutoRefreshManager.shared.enabled || EmberWatchRefreshManager.shared.enabled else {
             completionHandler(.noData)
             return
         }

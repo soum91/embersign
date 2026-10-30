@@ -87,7 +87,10 @@ jobs:
             Discovers the paired Watch, requests distinct iPhone/watchOS development
             profiles, signs nested Watch apps and widgets, installs the iPhone host,
             and streams the Watch app through the companion proxy to watchOS.
-            This has not yet been validated on a real iOS 27/watchOS 27 pair;
+            New Watch refresh tracking saves the last successful unsigned IPA and
+            its provisioning expiry, offers a manual renew button, best-effort
+            background renewal, and one-tap GitHub feed download and Watch update.
+            The on-device Watch path still needs real iOS 27/watchOS 27 testing;
             Apple's platform registration and service authorization may reject it.
 
             Adds multiple Apple Account sessions, 2FA, on-device free/paid development provisioning, account/team quotas, certificate/App ID/profile management, paired-device app inventory, uninstall and portal cleanup, automatic re-sign/reinstall attempts, and error-code diagnostics with online issue lookup.
