@@ -428,6 +428,89 @@ final class EmberAccountManager: ObservableObject {
         return imported
     }
 
+    /// Provision every bundle in a normal iOS app-plus-extension package.
+    /// The app, keyboard, Share extension and widgets each require their own
+    /// App ID, an iPhone-compatible profile, and one shared signing identity.
+    /// Never reuse the host's provisioning profile for an extension.
+    func provisionIOSExtensionBundleSet(bundleIDs: [String]) async throws -> EmberWatchSigningIdentity {
+        guard var account = selectedAccount else { throw EmberAccountStoreError.missingAccount }
+        guard let team = account.selectedTeam else { throw EmberAccountStoreError.missingTeam }
+        let ids = Array(Set(bundleIDs)).sorted()
+        guard ids.count == bundleIDs.count, (2...8).contains(ids.count),
+              ids.allSatisfy({ !$0.isEmpty && !$0.contains(where: \.isWhitespace) }),
+              let host = bundleIDs.first,
+              ids.filter({ $0 != host }).allSatisfy({ $0.hasPrefix(host + ".") }) else {
+            throw EmberError.message("Invalid host or extension bundle IDs. Extensions must start with the host bundle ID.")
+        }
+        let pairingRecord = try EmberPairingStore.read()
+        guard let udid = pairingRecord.udid, !udid.isEmpty else {
+            throw EmberAccountStoreError.missingPairingUDID
+        }
+        status = "Registering this iPhone for all embedded extensions…"
+        var devices = try await portal.fetchDevices(for: team, session: account.auth.session)
+        if !devices.contains(where: { $0.identifier.caseInsensitiveCompare(udid) == .orderedSame }) {
+            let device = try await portal.registerDevice(
+                name: UIDevice.current.name, identifier: udid,
+                type: UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone,
+                team: team, session: account.auth.session
+            )
+            devices.append(device)
+        }
+        var appIDs = try await portal.fetchAppIDs(for: team, session: account.auth.session)
+        var mapped: [String: AppID] = [:]
+        // Register every requested ID first, before creating a certificate.
+        for id in bundleIDs {
+            status = "Registering App ID: \(id)"
+            if let existing = appIDs.first(where: { $0.bundleIdentifier == id }) {
+                mapped[id] = existing
+            } else {
+                let newID = try await portal.addAppID(
+                    withName: portalAppIDDisplayName(for: id), bundleIdentifier: id,
+                    team: team, session: account.auth.session
+                )
+                mapped[id] = newID
+                appIDs.append(newID)
+            }
+        }
+        let certificates = try await portal.fetchCertificates(for: team, session: account.auth.session)
+        var p12 = account.signingP12
+        if p12 == nil || account.signingCertificateID == nil ||
+           !certificates.contains(where: { $0.identifier == account.signingCertificateID }) {
+            status = "Creating development certificate for embedded extensions…"
+            let certificate = try await portal.addCertificate(
+                machineName: "EmberSign iOS Extensions",
+                to: team, session: account.auth.session
+            )
+            p12 = try certificate.exportP12(password: "")
+            account.signingP12 = p12
+            account.signingCertificateID = certificate.certificate.identifier
+            try persist(account)
+            upsert(account)
+        }
+        guard let p12 else { throw EmberError.message("No usable signing certificate.") }
+        var profiles: [String: Data] = [:]
+        for id in bundleIDs {
+            guard let appID = mapped[id] else { throw EmberError.message("Missing App ID for \(id).") }
+            status = "Downloading individual provisioning profile: \(id)"
+            let profile = try await portal.downloadProvisioningProfile(
+                for: appID, isTeamProfile: true,
+                deviceType: UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone,
+                team: team, session: account.auth.session
+            )
+            guard profile.bundleIdentifier == id else {
+                throw EmberError.message("Provisioning profile does not match \(id).")
+            }
+            guard profile.deviceIDs.contains(where: {
+                $0.caseInsensitiveCompare(udid) == .orderedSame
+            }) else {
+                throw EmberError.message("The provisioning profile for \(id) does not include this iPhone.")
+            }
+            profiles[id] = profile.data
+        }
+        status = "All \(bundleIDs.count) iOS bundle profiles are ready for signing."
+        return EmberWatchSigningIdentity(p12: p12, profiles: profiles)
+    }
+
     /// Provision the iPhone host, Watch app and Watch extensions separately.
     /// Watch profiles must explicitly include the registered Watch UDID;
     /// reusing a profile generated for the iPhone would produce an invalid IPA.

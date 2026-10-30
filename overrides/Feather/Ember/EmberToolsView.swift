@@ -53,6 +53,9 @@ struct EmberToolsView: View {
                     }
                 }
                 Section("Signing and tweaks") {
+                    NavigationLink { EmberIOSExtensionsView() } label: {
+                        Label("iOS keyboards & app extensions", systemImage: "keyboard")
+                    }
                     NavigationLink { CertificatesView() } label: {
                         Label("Signing certificates", systemImage: "checkmark.seal")
                     }
