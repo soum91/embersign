@@ -82,6 +82,23 @@ final class EmberCoreTests: XCTestCase {
         XCTAssertNoThrow(try EmberJITProtocol.activationMessage(data: Data(#""Enabled JIT for 'App'!""#.utf8)))
     }
 
+    func testProfileExpiryTakesPrecedenceOverLongLivedCertificate() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let profile = now.addingTimeInterval(36 * 3_600)
+        let certificate = now.addingTimeInterval(250 * 86_400)
+        XCTAssertEqual(EmberSigningExpiryPolicy.effectiveExpiry(profile: profile, certificate: certificate), profile)
+        XCTAssertTrue(EmberSigningExpiryPolicy.needsRefresh(
+            profile: profile, certificate: certificate, now: now, thresholdDays: 2))
+        XCTAssertFalse(EmberSigningExpiryPolicy.needsRefresh(
+            profile: profile, certificate: certificate, now: now, thresholdDays: 1))
+    }
+
+    func testUnknownSigningExpiryCannotSilentlySkipRefresh() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertTrue(EmberSigningExpiryPolicy.needsRefresh(
+            profile: nil, certificate: nil, now: now, thresholdDays: 2))
+    }
+
     func testModernWatchCompanionRequiresThreeDifferentProfiles() throws {
         try withTemporaryApp { host in
             let watch = host.appendingPathComponent("PlugIns/WristPaneWatch.app")

@@ -8,6 +8,7 @@ import UserNotifications
 struct EmberRefreshEntry: Identifiable {
     let id: String
     let name: String
+    let hasRecoveryProfiles: Bool
 }
 
 @MainActor
@@ -122,17 +123,29 @@ final class EmberAutoRefreshManager: ObservableObject {
     /// A purchased/enterprise certificate is never silently replaced by a free account.
     func trackedApps() -> [EmberRefreshEntry] {
         var seen = Set<String>()
+        // An unreadable recovery store is treated as protected, not empty.
+        let suspended = try? EmberSlotStore.load()
         return signedApps().compactMap { app in
             guard let id = app.identifier, !id.isEmpty,
                   id != Bundle.main.bundleIdentifier,
                   EmberAccountManager.shared.accountID(for: id) != nil,
                   seen.insert(id).inserted else { return nil }
-            return EmberRefreshEntry(id: id, name: app.name ?? id)
+            return EmberRefreshEntry(id: id, name: app.name ?? id,
+                                     hasRecoveryProfiles: suspended?.contains(where: { $0.id == id }) ?? true)
         }
     }
 
     func refresh(bundleID: String) async -> Bool {
         guard !isRunning else { return false }
+        do {
+            guard try !EmberSlotStore.hasSavedProfiles(for: bundleID) else {
+                status = "Restore the saved provisioning profiles for \(bundleID) before re-signing. Refresh would reactivate the app and may consume a free-team slot."
+                return false
+            }
+        } catch {
+            status = "Refresh blocked: cannot read recovery profiles. " + error.localizedDescription
+            return false
+        }
         guard EmberAccountManager.shared.accountID(for: bundleID) != nil,
               let app = signedApps().first(where: { $0.identifier == bundleID }) else {
             status = "No signed IPA and Apple Account are recorded for \(bundleID). Import it before refreshing."
@@ -143,15 +156,26 @@ final class EmberAutoRefreshManager: ObservableObject {
 
     func refreshAll(force: Bool = false) async -> Bool {
         guard !isRunning else { return false }
+        let suspended: Set<String>
+        do {
+            suspended = Set(try EmberSlotStore.load().map(\.id))
+        } catch {
+            status = "Automatic refresh paused: cannot verify saved recovery profiles. " + error.localizedDescription
+            return false
+        }
         var seen = Set<String>()
         let apps: [Signed] = (enabled || force) ? signedApps().filter { app in
             guard let bundleID = app.identifier,
                   bundleID != Bundle.main.bundleIdentifier,
+                  !suspended.contains(bundleID),
                   EmberAccountManager.shared.accountID(for: bundleID) != nil,
                   seen.insert(bundleID).inserted else { return false }
             if force { return true }
-            guard let expiry = Storage.shared.getCertificate(from: app)?.expiration else { return true }
-            return expiry.timeIntervalSinceNow <= Double(thresholdDays) * 86_400
+            return EmberSigningExpiryPolicy.needsRefresh(
+                profile: profileExpiry(for: bundleID),
+                certificate: Storage.shared.getCertificate(from: app)?.expiration,
+                thresholdDays: thresholdDays
+            )
         } : []
 
         return await performRefresh(apps, includeWatch: true, forceWatch: force)
@@ -164,6 +188,9 @@ final class EmberAutoRefreshManager: ObservableObject {
         for app in apps {
             guard let bundleID = app.identifier else { continue }
             do {
+                guard try !EmberSlotStore.hasSavedProfiles(for: bundleID) else {
+                    throw EmberError.message("Recovery profiles exist. Reactivate this app before refreshing it.")
+                }
                 status = "Refreshing \(app.name ?? bundleID)..."
                 let accountID = EmberAccountManager.shared.accountID(for: bundleID)
                 let identity = try await EmberAccountManager.shared.provisionSigningIdentity(bundleID: bundleID, accountID: accountID)
@@ -171,6 +198,9 @@ final class EmberAutoRefreshManager: ObservableObject {
                 try await sign(app, with: identity)
                 guard let refreshed = signedApps().first(where: { $0.identifier == bundleID && !oldUUIDs.contains($0.uuid ?? "") }) else {
                     throw EmberError.message("The refreshed app was signed but not found in the library.")
+                }
+                guard try !EmberSlotStore.hasSavedProfiles(for: bundleID) else {
+                    throw EmberError.message("The app was deactivated during signing. Installation cancelled to preserve its free-team slot.")
                 }
                 try await install(refreshed)
             } catch {
@@ -202,6 +232,14 @@ final class EmberAutoRefreshManager: ObservableObject {
         let request: NSFetchRequest<Signed> = Signed.fetchRequest()
         request.sortDescriptors = [NSSortDescriptor(keyPath: \Signed.date, ascending: false)]
         return (try? Storage.shared.context.fetch(request)) ?? []
+    }
+
+    private func profileExpiry(for bundleID: String) -> Date? {
+        guard let accountID = EmberAccountManager.shared.accountID(for: bundleID),
+              let inventory = EmberAccountManager.shared.inventories[accountID] else { return nil }
+        return inventory.profiles
+            .filter { $0.bundleIdentifier == bundleID }
+            .map(\.dateExpire).min()
     }
 
     private func sign(_ app: Signed, with certificate: CertificatePair) async throws {
@@ -272,10 +310,14 @@ struct EmberAutoRefreshView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(app.name)
                             Text(app.id).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            if app.hasRecoveryProfiles {
+                                Text("Recovery profiles saved. Reactivate before refresh.")
+                                    .font(.caption2).foregroundStyle(.orange)
+                            }
                         }
                         Spacer()
                         Button("Refresh") { Task { _ = await refresh.refresh(bundleID: app.id) } }
-                            .disabled(refresh.isRunning)
+                            .disabled(refresh.isRunning || app.hasRecoveryProfiles)
                             .buttonStyle(.bordered)
                     }
                 }

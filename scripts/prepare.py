@@ -36,6 +36,25 @@ def prepare(destination):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
 
+    # IDeviceKit's heartbeat drives installation on iOS 16 and 17.0–17.3.
+    # Its upstream IP/ports are constants, so the in-app connection settings
+    # otherwise change JIT/backup while leaving the actual installer fixed at
+    # 10.7.0.1. Keep the pinned default values unless the user changes them.
+    heartbeat = destination / "IDeviceKitten/Sources/IDeviceSwift/Heartbeat/Heartbeat.swift"
+    replace_once(heartbeat, 'public let ipAddress: String = "10.7.0.1"', '''public var ipAddress: String {
+        let candidate = UserDefaults.standard.string(forKey: "EmberSign.jit.endpoint.deviceIP")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return candidate.isEmpty ? "10.7.0.1" : candidate
+    }''')
+    replace_once(heartbeat, 'public let port: UInt16 = UInt16(LOCKDOWN_PORT)', '''public var port: UInt16 {
+        let configured = UserDefaults.standard.integer(forKey: "EmberSign.legacy.endpoint.port")
+        return (1...65535).contains(configured) ? UInt16(configured) : UInt16(LOCKDOWN_PORT)
+    }''')
+    replace_once(heartbeat, 'public let port_rsd: UInt16 = UInt16(49152)', '''public var port_rsd: UInt16 {
+        let configured = UserDefaults.standard.integer(forKey: "EmberSign.jit.endpoint.port")
+        return (1...65535).contains(configured) ? UInt16(configured) : UInt16(49152)
+    }''')
+
     # Zsign's C++ engine can already match each nested bundle with a different
     # ZSignAsset, but its Swift bridge exposes just one profile. Preserve the
     # public Swift API and accept newline-separated profile paths for the Watch

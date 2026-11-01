@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import IDeviceSwift
+import Darwin
 
 struct EmberToolsView: View {
     @ObservedObject private var accounts = EmberAccountManager.shared
@@ -82,6 +83,9 @@ struct EmberToolsView: View {
 
 struct EmberPairingView: View {
     @ObservedObject private var selfPairing = EmberOnDevicePairing.shared
+    @AppStorage("EmberSign.jit.endpoint.deviceIP") private var endpointDeviceIP = "10.7.0.1"
+    @AppStorage("EmberSign.jit.endpoint.port") private var endpointRemotePort = 49152
+    @AppStorage("EmberSign.legacy.endpoint.port") private var endpointLockdownPort = 62078
     @State private var record: EmberPairingRecord?
     @State private var importing = false
     @State private var exporting = false
@@ -93,6 +97,38 @@ struct EmberPairingView: View {
 
     var body: some View {
         List {
+            Section {
+                TextField("Device IP", text: $endpointDeviceIP)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .keyboardType(.numbersAndPunctuation)
+                if #available(iOS 17.4, *) {
+                    TextField("Remote pairing port", value: $endpointRemotePort, format: .number)
+                        .keyboardType(.numberPad)
+                } else {
+                    TextField("Lockdown port", value: $endpointLockdownPort, format: .number)
+                        .keyboardType(.numberPad)
+                    Button("Apply and reconnect") {
+                        var address = in_addr()
+                        guard endpointDeviceIP.withCString({ inet_pton(AF_INET, $0, &address) }) == 1,
+                              (1...65535).contains(endpointLockdownPort) else {
+                            message = "Enter a valid IPv4 Device IP and TCP port before reconnecting."
+                            return
+                        }
+                        HeartbeatManager.shared.start(true)
+                        message = "Restarting the paired-device connection at \(endpointDeviceIP):\(endpointLockdownPort). Keep LocalDevVPN connected."
+                    }
+                }
+                Button("Restore LocalDevVPN defaults") {
+                    endpointDeviceIP = "10.7.0.1"
+                    endpointRemotePort = 49152
+                    endpointLockdownPort = 62078
+                    if #unavailable(iOS 17.4) { HeartbeatManager.shared.start(true) }
+                }
+            } header: {
+                Text("Device connection")
+            } footer: {
+                Text("Use the Device IP shown by LocalDevVPN. On iOS 16, EmberSign now uses these settings for its installer, device scan, backups, and refresh, like the paired-device connection in SideStore. The VPN and pairing file must still be valid.")
+            }
             Section("Pairing record") {
                 Label(record == nil ? "No pairing file" : "Pairing file imported",
                       systemImage: record == nil ? "link.badge.plus" : "checkmark.circle")
@@ -264,7 +300,7 @@ struct EmberJITView: View {
             } header: {
                 Text("Local JIT connection")
             } footer: {
-                Text("Use LocalDevVPN's Device IP, not its Tunnel IP. Your current settings already match 10.7.0.1:49152; changing these fields cannot fix an invalid pairing record or a connection reset.")
+                Text("Use LocalDevVPN's Device IP, not its Tunnel IP. These settings are also available under Tools > Pairing file. Changing them cannot repair an invalid pairing record.")
             }
             Section {
                 Button {

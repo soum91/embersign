@@ -22,20 +22,24 @@ An iOS 16+ app for signing and customizing IPAs on device, managing pairing file
 
 ## Current limits
 
-### Zeus-inspired app management (feature branch)
+### Zeus-inspired app management (experimental)
 
-`feature/zeus-parity-no-containers` experiments with per-app re-sign/reinstall,
-remembered JIT launch preferences, local app-data backup/restore and
+The current main branch includes per-app re-sign/reinstall, remembered JIT
+launch preferences, local app-data backup/restore and experimental
 deactivation/reactivation of free-team apps by removing and restoring their
 installed provisioning profiles. It intentionally does not integrate
 zContainer, LiveContainer, or another app-runtime container.
 
 On-device profile suspension leaves an app installed but temporarily prevents
 launches. The exact removed profile bytes are saved in EmberSign before a
-device modification, and reactivation verifies their return. This follows the
-same profile-removal approach used by SideStore, but releasing a free-team
-active-app slot still needs testing on a real iPhone. The operation does not
-delete an App ID from Apple's seven-day developer registration quota.
+device modification, and reactivation verifies their return. These recovery
+records can now be exported to and imported from Files to protect against loss
+of EmberSign's local state. Automatic refresh skips suspended apps. Whether
+profile suspension releases a free-team active-app slot still needs testing on
+a real iPhone. The operation does not delete an App ID from Apple's seven-day
+developer registration quota. Zeus 3.1.9 uses a different backup/uninstall/
+restore workflow for deactivation, which this implementation does not yet
+provide. Do not uninstall a valued app based on a partial backup.
 
 The separate app-data snapshot tool uses paired-device House Arrest/AFC access
 to copy readable `Documents` and `Library` files, checks per-file SHA-256 hashes,
@@ -47,9 +51,9 @@ Neither the backup path nor profile suspension has yet been validated on a
 physical iPhone running iOS 27; never uninstall a valued app solely on the
 strength of this snapshot.
 
-The feature branch builds and uploads test artifacts through GitHub Actions,
-but does not update the public FlareStore feed or publish a Release. Its
-controls must be validated before promotion to `main`.
+The controls are available on main but remain experimental until verified on
+physical hardware. A test branch can build IPA artifacts without publishing
+them to the FlareStore feed.
 
 ### Experimental Apple Watch installation
 
@@ -89,6 +93,7 @@ If a client caches an older entry, refresh the source in that client.
 3. In Apps, import an IPA and choose Sign. Choose **Provision with Apple Account** to create a fresh identity for that bundle ID, or select an imported certificate. Add tweaks before signing. To prepare a compatible app for JIT, enable Prepare for JIT and use a development profile.
 4. Install or export the signed IPA.
 5. In Tools > Pairing file, import your trusted pairing record. Export a copy to Files when you need to import it into Reynard or another compatible tool.
+   Under **Device connection**, enter LocalDevVPN's Device IP and matching port. On iOS 16–17.3, tap **Apply and reconnect** to restart the legacy Lockdown heartbeat used for signing installs, scans, and backups. The default Lockdown port is 62078; the remote-pairing port on newer iOS is 49152. Change these only to match your tunnel configuration.
 6. For built-in JIT activation, save a compatible remote pairing record in Tools > Pairing file (on iOS 27, try Start on-device pairing), connect LocalDevVPN, and choose Enable JIT in EmberSign for the signed target. The first request may download and mount a developer image. If built-in activation fails, the JIT page retains StikDebug and SideJITServer fallback methods.
 7. In Tools > Installed apps, scan the paired device to inspect signing details or uninstall an app. In Tools > Auto refresh, enable background attempts and choose the remaining-days threshold.
 

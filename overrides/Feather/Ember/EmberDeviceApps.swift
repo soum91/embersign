@@ -3,6 +3,7 @@ import SwiftUI
 import IDeviceSwift
 import IDevice
 import Darwin
+import UniformTypeIdentifiers
 
 struct EmberInactiveSlot: Identifiable, Codable {
     let id: String
@@ -29,20 +30,77 @@ private enum EmberSlotError: LocalizedError {
 
 /// A protected local copy of the exact profiles is saved before changing any on-device state.
 /// No certificate/private key is stored here, and no app binary is uninstalled.
-private enum EmberSlotStore {
+enum EmberSlotStore {
     private static var location: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("EmberSign-InactiveProfiles.json")
     }
-    static func load() -> [EmberInactiveSlot] {
-        guard let data = try? Data(contentsOf: location) else { return [] }
-        return (try? JSONDecoder().decode([EmberInactiveSlot].self, from: data)) ?? []
+    static func load() throws -> [EmberInactiveSlot] {
+        guard FileManager.default.fileExists(atPath: location.path) else { return [] }
+        // Fail closed when the protected recovery file cannot be read or decoded.
+        // Treating it as an empty list could overwrite the only recovery copy.
+        let data = try Data(contentsOf: location)
+        let records = try JSONDecoder().decode([EmberInactiveSlot].self, from: data)
+        guard Set(records.map(\.id)).count == records.count else {
+            throw EmberSlotError.message("Duplicate app IDs in saved recovery profiles. No profiles were changed.")
+        }
+        return records
+    }
+
+    static func hasSavedProfiles(for bundleID: String) throws -> Bool {
+        try load().contains { $0.id == bundleID }
+    }
+
+    static func importRecovery(_ incoming: [EmberInactiveSlot]) throws -> [EmberInactiveSlot] {
+        guard !incoming.isEmpty, incoming.count <= 100,
+              Set(incoming.map(\.id)).count == incoming.count else {
+            throw EmberSlotError.message("Recovery archive is empty, duplicated, or unexpectedly large.")
+        }
+        var current = try load()
+        for record in incoming {
+            guard !record.profiles.isEmpty, record.profiles.count <= 20 else {
+                throw EmberSlotError.message("Invalid profile count for \(record.name).")
+            }
+            let parsed = try record.profiles.map { try EmberIOSProvisionProfile.parse($0) }
+            guard parsed.allSatisfy({ $0.team == record.teamID &&
+                $0.applicationPattern == record.teamID + "." + record.id }) else {
+                throw EmberSlotError.message("Recovery archive includes profiles not belonging to \(record.id).")
+            }
+            if let existing = current.first(where: { $0.id == record.id }) {
+                guard existing.profiles == record.profiles && existing.teamID == record.teamID else {
+                    throw EmberSlotError.message("A different recovery record already exists for \(record.id); nothing was overwritten.")
+                }
+            } else {
+                current.append(record)
+            }
+        }
+        try save(current)
+        return current
     }
     static func save(_ records: [EmberInactiveSlot]) throws {
         let data = try JSONEncoder().encode(records)
         try FileManager.default.createDirectory(at: location.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         try data.write(to: location, options: [.atomic, .completeFileProtection])
+    }
+}
+
+struct EmberRecoveryProfilesDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+    var records: [EmberInactiveSlot]
+
+    init(records: [EmberInactiveSlot]) { self.records = records }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let bytes = configuration.file.regularFileContents,
+              bytes.count <= 5_000_000 else {
+            throw EmberSlotError.message("Recovery archive is missing or too large.")
+        }
+        records = try JSONDecoder().decode([EmberInactiveSlot].self, from: bytes)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: try JSONEncoder().encode(records))
     }
 }
 
@@ -162,7 +220,8 @@ private enum EmberSlotBridge {
 @MainActor
 final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyAppsDelegate {
     @Published var apps: [AppInfo] = []
-    @Published private(set) var inactive: [EmberInactiveSlot] = EmberSlotStore.load()
+    @Published private(set) var inactive: [EmberInactiveSlot] = []
+    @Published private(set) var recoveryStoreError: String?
     @Published private(set) var backups: [String: EmberBackupSummary] = [:]
     @Published var isLoading = false
     @Published var status = "Connect LocalDevVPN and import this device's pairing file to scan installed apps."
@@ -171,6 +230,11 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
     override init() {
         super.init()
         proxy.delegate = self
+        do {
+            inactive = try EmberSlotStore.load()
+        } catch {
+            recoveryStoreError = "Recovery records cannot be read. Do not deactivate, uninstall, or refresh apps until this is resolved: " + error.localizedDescription
+        }
     }
 
     nonisolated func updateApplications(with apps: [AppInfo]) {
@@ -207,7 +271,7 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
     func backUp(_ app: AppInfo) async {
         guard !isLoading, let identifier = app.CFBundleIdentifier else { return }
         isLoading = true
-        status = "Backing up (app.displayName). Keep EmberSign open until verification finishes..."
+        status = "Backing up \(app.displayName). Keep EmberSign open until verification finishes..."
         defer { isLoading = false }
         do {
             let summary = try await Task.detached(priority: .userInitiated) {
@@ -239,8 +303,13 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
 
     func uninstall(_ app: AppInfo, removePortalRecords: Bool) async {
         guard let bundleID = app.CFBundleIdentifier else { return }
-        guard !hasSavedProfiles(bundleID) else {
-            status = "Restore the app's saved provisioning profiles before uninstalling it. Otherwise its data may be lost."
+        do {
+            guard try !EmberSlotStore.hasSavedProfiles(for: bundleID) else {
+                status = "Restore the app's saved provisioning profiles before uninstalling it. Otherwise its data may be lost."
+                return
+            }
+        } catch {
+            status = "Cannot verify recovery profiles. Uninstall cancelled: " + error.localizedDescription
             return
         }
         isLoading = true
@@ -270,8 +339,33 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
     }
 
     func hasSavedProfiles(_ bundleID: String?) -> Bool {
+        if recoveryStoreError != nil { return true }
         guard let bundleID else { return false }
         return inactive.contains(where: { $0.id == bundleID })
+    }
+
+    func exportRecovery() throws -> EmberRecoveryProfilesDocument {
+        let records = try EmberSlotStore.load()
+        guard !records.isEmpty else { throw EmberSlotError.message("No saved recovery profiles to export.") }
+        return EmberRecoveryProfilesDocument(records: records)
+    }
+
+    func importRecovery(_ url: URL) {
+        do {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let bytes = try Data(contentsOf: url)
+            guard bytes.count <= 5_000_000 else {
+                throw EmberSlotError.message("Recovery archive exceeds the 5 MB limit.")
+            }
+            let imported = try JSONDecoder().decode([EmberInactiveSlot].self, from: bytes)
+            inactive = try EmberSlotStore.importRecovery(imported)
+            recoveryStoreError = nil
+            status = "Imported and validated \(imported.count) recovery record(s). No installed apps were modified."
+        } catch {
+            recoveryStoreError = "Recovery import failed: " + error.localizedDescription
+            EmberErrorCenter.shared.record(error, operation: "Import app recovery profiles")
+        }
     }
 
     func deactivate(_ app: AppInfo) async {
@@ -286,6 +380,13 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
         isLoading = true
         status = "Reading installed provisioning profiles for \(app.displayName)..."
         do {
+            // Reload from disk before modifying the device; never overwrite an
+            // unreadable or newer set of protected recovery profiles.
+            let current = try EmberSlotStore.load()
+            guard !current.contains(where: { $0.id == bundleID }) else {
+                throw EmberSlotError.message("This app already has saved recovery profiles. Restore those first.")
+            }
+            inactive = current
             let rawProfiles = try await Task.detached(priority: .userInitiated) {
                 try EmberSlotBridge.read()
             }.value
@@ -351,18 +452,30 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
         isLoading = true
         status = "Restoring saved provisioning profiles for \(record.name)..."
         do {
+            let current = try EmberSlotStore.load()
+            guard let saved = current.first(where: { $0.id == record.id }),
+                  saved.teamID == record.teamID, saved.profiles == record.profiles else {
+                throw EmberSlotError.message("Recovery record has changed. Reopen Installed apps to load the saved profile data.")
+            }
+            let decoded = try saved.profiles.map { try EmberIOSProvisionProfile.parse($0) }
+            guard !decoded.isEmpty,
+                  decoded.allSatisfy({ $0.team == saved.teamID &&
+                      $0.applicationPattern == saved.teamID + "." + saved.id }) else {
+                throw EmberSlotError.message("Saved profiles are missing or do not match this app. No device changes were made.")
+            }
             try await Task.detached(priority: .userInitiated) {
-                try EmberSlotBridge.restore(record.profiles)
+                try EmberSlotBridge.restore(saved.profiles)
             }.value
             let installed = try await Task.detached(priority: .userInitiated) {
                 try EmberSlotBridge.read()
             }.value
             let profileIDs = Set(installed.compactMap { try? EmberIOSProvisionProfile.parse($0).id })
-            let required = Set(record.profiles.compactMap { try? EmberIOSProvisionProfile.parse($0).id })
+            let required = Set(decoded.map(\.id))
             guard required.isSubset(of: profileIDs) else {
                 throw EmberSlotError.message("Profile restoration was not verified. Keep the recovery record.")
             }
-            let previous = inactive
+            let previous = current
+            inactive = current
             inactive.removeAll { $0.id == record.id }
             do {
                 try EmberSlotStore.save(inactive)
@@ -400,6 +513,9 @@ struct EmberDeviceAppsView: View {
     @State private var pendingDeactivation: AppInfo?
     @State private var pendingReactivation: EmberInactiveSlot?
     @State private var pendingDataRestore: AppInfo?
+    @State private var exportingRecovery = false
+    @State private var importingRecovery = false
+    @State private var recoveryDocument: EmberRecoveryProfilesDocument?
 
     var body: some View {
         List {
@@ -410,6 +526,18 @@ struct EmberDeviceAppsView: View {
         }
         .navigationTitle("Installed apps")
         .task { await model.scan() }
+        .fileExporter(isPresented: $exportingRecovery, document: recoveryDocument,
+                      contentType: .json, defaultFilename: "EmberSign-Recovery-Profiles") { result in
+            if case .failure(let error) = result {
+                model.status = "Recovery export failed: " + error.localizedDescription
+            }
+        }
+        .fileImporter(isPresented: $importingRecovery, allowedContentTypes: [.json]) { result in
+            switch result {
+            case .success(let url): model.importRecovery(url)
+            case .failure(let error): model.status = "Recovery import failed: " + error.localizedDescription
+            }
+        }
         .sheet(item: $selected) { app in appDetails(app) }
         .confirmationDialog("Remove \(pendingRemoval?.displayName ?? "app")?", isPresented: Binding(
             get: { pendingRemoval != nil },
@@ -484,6 +612,12 @@ struct EmberDeviceAppsView: View {
 
     private var recoverySection: some View {
         Section("Saved provisioning profiles / recovery") {
+            Button {
+                do {
+                    recoveryDocument = try model.exportRecovery()
+                    exportingRecovery = true
+                } catch { model.status = error.localizedDescription }
+            } label: { Label("Export recovery profiles to Files", systemImage: "square.and.arrow.up") }
             ForEach(model.inactive) { record in
                 Button { pendingReactivation = record } label: {
                     VStack(alignment: .leading, spacing: 4) {
@@ -534,6 +668,13 @@ struct EmberDeviceAppsView: View {
 
     private var disclaimerSection: some View {
         Section {
+            if let warning = model.recoveryStoreError {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+            }
+            Button { importingRecovery = true } label: {
+                Label("Import saved recovery profiles from Files", systemImage: "square.and.arrow.down")
+            }
             Text("Deactivation saves and removes on-device signing profiles and leaves the app and its data installed, as in SideStore's deactivation operation. The app will stop opening until reactivated. Whether iOS releases an active free-team slot must be verified on your device. Purchased/enterprise certificate apps are excluded.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
