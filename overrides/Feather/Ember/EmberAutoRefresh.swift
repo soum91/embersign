@@ -158,6 +158,10 @@ final class EmberAutoRefreshManager: ObservableObject {
     }
 
     private func performRefresh(_ apps: [Signed], includeWatch: Bool, forceWatch: Bool = false) async -> Bool {
+        if EmberInstallTarget.isRemote && !apps.isEmpty {
+            status = "Automatic iPhone app refresh is paused while the remote iPhone 13 is selected. Switch to This iPhone before refreshing local apps. Remote apps require an explicit installation."
+            return false
+        }
         isRunning = true
         defer { isRunning = false }
         var failures = 0

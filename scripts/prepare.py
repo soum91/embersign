@@ -268,9 +268,67 @@ extension SigningView {
     }
 
 \tprivate func _start() {''')
+    replace_once(signing_view, '''\t\tNBSection(.localized("Signing")) {
+            if !EmberAccountManager.shared.accounts.isEmpty {''', '''\t\tNBSection(.localized("Signing")) {
+            NavigationLink { EmberInstallTargetView() } label: {
+                Label("Destination: \\(EmberInstallTarget.targetName)", systemImage: "iphone.and.arrow.forward")
+            }
+            Toggle("Install automatically after signing", isOn: $_temporaryOptions.post_installAppAfterSigned)
+            if !EmberAccountManager.shared.accounts.isEmpty {''')
+    replace_once(signing_view, '\t@State private var _isSigning = false',
+                 '\t@State private var _isSigning = false\n    @AppStorage("EmberSign.installTarget.mode") private var _installTargetMode = "self"')
+
+    # The pre-iOS-17.4 SideStore path is a paired Lockdown/AFC installation,
+    # not Feather's itms-services web server. Keep the web method as fallback.
+    install_view = app / "Views/Settings/Installation/InstallationView.swift"
+    replace_once(install_view, '@AppStorage("Feather.installationMethod") private var _installationMethod: Int = 0',
+                 '@AppStorage("Feather.installationMethod") private var _installationMethod: Int = 1')
+    replace_once(install_view, '''\t\t.localized("Server"),
+\t\t.localized("idevice")''', '''        "Web install (fallback)",
+        "Paired-device install (SideStore)"''')
+    replace_once(install_view, '''\t\t\t} footer: {
+\t\t\t\tText(.localized("Server (Recommended):\\nUses a locally hosted server and itms-services:// to install applications.\\n\\nIDevice (advanced):\\nUses a VPN and a pairing file. Writes to AFC and manually calls installd, while monitoring install progress by using a callback\\nAdvantage: It is very reliable, does not need SSL certificates or a externally hosted server. Rather, works similarly to a computer."))
+\t\t\t}''', '''            } footer: {
+                Text("The paired-device method uses LocalDevVPN and this iPhone's pairing file. For iPhone-to-iPhone Wi-Fi installation, select the iPhone 13 as the destination and import its separate pairing file.")
+            }
+            NavigationLink { EmberInstallTargetView() } label: {
+                Label("Choose installation destination", systemImage: "iphone.and.arrow.forward")
+            }''')
+    replace_once(install_view, '''\t\t.onChange(of: _installationMethod) { newValue in
+\t\t\tguard newValue == 1 else { return }
+\t\t\t_showMethodChangedAlert = true
+\t\t}
+\t\t.alert(.localized("Advanced Installation Method"), isPresented: $_showMethodChangedAlert) {
+\t\t\tButton(.localized("Switch Back"), role: .destructive) {
+\t\t\t\t_installationMethod = 0
+\t\t\t}
+\t\t\tButton(.localized("OK"), role: .cancel) {}
+\t\t} message: {
+\t\t\tText(.localized("idevice warning"))
+\t\t}''', '')
+
+    install_preview = app / "Views/Library/Install/InstallPreviewView.swift"
+    replace_once(install_preview,
+        '@AppStorage("Feather.installationMethod") private var _installationMethod: Int = 0',
+        '@AppStorage("Feather.installationMethod") private var _installationMethod: Int = 1')
+    replace_once(install_preview,
+        'InstallerStatusViewModel(isIdevice: UserDefaults.standard.integer(forKey: "Feather.installationMethod") == 1)',
+        'InstallerStatusViewModel(isIdevice: UserDefaults.standard.integer(forKey: "Feather.installationMethod") == 1 || EmberInstallTarget.isRemote)')
+    replace_once(install_preview,
+        'app.identifier != Bundle.main.bundleIdentifier! || _installationMethod == 1 else {',
+        'app.identifier != Bundle.main.bundleIdentifier! || _installationMethod == 1 || EmberInstallTarget.isRemote else {')
+    replace_once(install_preview, 'if await _installationMethod == 0 {',
+                 'if await _installationMethod == 0 && !EmberInstallTarget.isRemote {')
+    replace_once(install_preview, '''\t\t\t\t\t\tlet handler = await InstallationProxy(viewModel: viewModel)
+\t\t\t\t\t\ttry await handler.install(at: packageUrl, suspend: app.identifier == Bundle.main.bundleIdentifier!)''',
+                 '''                        try await EmberInstallTarget.install(at: packageUrl, viewModel: viewModel)''')
+
     main = app / "FeatherApp.swift"
     replace_once(main, '\t@UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate', '\t@UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate\n    @StateObject private var emberJIT = EmberJITService.shared')
     replace_once(main, '\t\t_addDefaultCertificates()\n\t\treturn true', '''\t\t_addDefaultCertificates()
+        if UserDefaults.standard.object(forKey: "Feather.installationMethod") == nil {
+            UserDefaults.standard.set(1, forKey: "Feather.installationMethod")
+        }
         EmberAutoRefreshManager.shared.configure()
 \t\treturn true''')
     replace_once(main, '\n\tprivate func _createPipeline() {', '''

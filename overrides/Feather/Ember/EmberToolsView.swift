@@ -36,6 +36,9 @@ struct EmberToolsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Section("Device tools") {
+                    NavigationLink { EmberInstallTargetView() } label: {
+                        Label("Install destination", systemImage: "iphone.and.arrow.forward")
+                    }
                     NavigationLink { EmberWatchSupportView() } label: {
                         Label("Apple Watch", systemImage: "applewatch")
                     }

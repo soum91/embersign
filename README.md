@@ -13,6 +13,8 @@ An iOS 16+ app for signing and customizing IPAs on device, managing pairing file
 - Automatic re-sign/reinstall attempts for apps provisioned through EmberSign, with a manual refresh action and iOS background-fetch support.
 - Structured error history with Apple/SideSign domain and code, local recovery guidance, SideStore issue lookup, and wider web search.
 - IPA import, app library, signing options, installation, expiry display, and signed IPA export.
+- SideStore-style direct AFC/installation-proxy installation as the default for this iPhone, with Feather's web installer retained as a fallback.
+- A separate remote iPhone 13 Pro Max destination: import its Lockdown pairing file, enter its Wi-Fi IPv4 address, verify its UDID, and sign/install to that phone over a trusted local connection. The signing profile must explicitly authorize the destination UDID.
 - Compatible `.dylib`, `.deb`, framework, and bundle injection before signing, inherited from Feather.
 - A **Prepare for JIT** signing switch that validates the selected development profile before adding debugger permission.
 - Pairing-file import, structural validation, atomic replacement, removal, and export through Files. Lockdown and remote-pairing formats remain distinct and are exported without altering their contents.
@@ -22,9 +24,9 @@ An iOS 16+ app for signing and customizing IPAs on device, managing pairing file
 
 ## Current limits
 
-### Zeus-inspired app management (feature branch)
+### Zeus-inspired app management
 
-`feature/zeus-parity-no-containers` experiments with per-app re-sign/reinstall,
+The current release experiments with per-app re-sign/reinstall,
 remembered JIT launch preferences, local app-data backup/restore and
 deactivation/reactivation of free-team apps by removing and restoring their
 installed provisioning profiles. It intentionally does not integrate
@@ -47,9 +49,34 @@ Neither the backup path nor profile suspension has yet been validated on a
 physical iPhone running iOS 27; never uninstall a valued app solely on the
 strength of this snapshot.
 
-The feature branch builds and uploads test artifacts through GitHub Actions,
-but does not update the public FlareStore feed or publish a Release. Its
-controls must be validated before promotion to `main`.
+The published `main` build includes these controls. Real-device tests remain
+necessary before relying on deactivation or backups for valuable app data.
+
+### iPhone 13 Pro Max installation
+
+For SideStore-style installation **on the iPhone 13 itself**, install EmberSign
+on that iPhone, choose **Tools > Install destination > This iPhone**, import
+the iPhone 13's own **Lockdown** pairing file under Tools > Pairing file, and
+connect LocalDevVPN. In Apps, sign with an imported certificate or your Apple
+Account, then tap Install; the paired-device service transfers the signed IPA
+directly to `installd`. This is the same-device method SideStore uses.
+
+For **installation from EmberSign on another iPhone to your iPhone 13 Pro Max**,
+choose **Tools > Install destination > iPhone 13 Pro Max over Wi-Fi**. Import a
+*separate* trusted Lockdown pairing record for the iPhone 13 and enter its
+private LAN IPv4 address. The target must be on the same Wi-Fi network with
+Wi-Fi device syncing enabled from a previously trusted computer. Tap **Verify
+selected iPhone** before installing. EmberSign checks the destination's live
+UDID against the pairing record and checks each embedded provisioning profile
+against that UDID before writing any IPA. Apple Account provisioning registers
+the selected target UDID; the three-app Personal Team limit still applies.
+
+Remote iPhone-to-iPhone Wi-Fi installation is a new experimental path and has
+not yet been tested with an actual iPhone 13 Pro Max. If the target's Lockdown
+port is not reachable, signing can still succeed but remote installation will
+fail without changing the target. LocalDevVPN's `10.7.0.1` address belongs to
+the *running* phone; it cannot be used as the remote iPhone's address. The
+remote pairing record is stored protected and excluded from iCloud backups.
 
 ### Experimental Apple Watch installation
 
@@ -87,7 +114,7 @@ If a client caches an older entry, refresh the source in that client.
 1. Download `EmberSign.ipa` from Releases. The CI IPA is ad-hoc signed and must be re-signed using your existing signing tool before installing it.
 2. In Tools > Apple Accounts, sign in and complete 2FA, or import an existing signing certificate/profile from Settings or Tools.
 3. In Apps, import an IPA and choose Sign. Choose **Provision with Apple Account** to create a fresh identity for that bundle ID, or select an imported certificate. Add tweaks before signing. To prepare a compatible app for JIT, enable Prepare for JIT and use a development profile.
-4. Install or export the signed IPA.
+4. In Tools > Install destination, select this iPhone or the remote iPhone 13 Pro Max and verify the connection. Then install or export the signed IPA; optionally enable "Install automatically after signing" in the signing screen.
 5. In Tools > Pairing file, import your trusted pairing record. Export a copy to Files when you need to import it into Reynard or another compatible tool.
 6. For built-in JIT activation, save a compatible remote pairing record in Tools > Pairing file (on iOS 27, try Start on-device pairing), connect LocalDevVPN, and choose Enable JIT in EmberSign for the signed target. The first request may download and mount a developer image. If built-in activation fails, the JIT page retains StikDebug and SideJITServer fallback methods.
 7. In Tools > Installed apps, scan the paired device to inspect signing details or uninstall an app. In Tools > Auto refresh, enable background attempts and choose the remaining-days threshold.

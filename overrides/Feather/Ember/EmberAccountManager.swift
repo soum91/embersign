@@ -357,18 +357,15 @@ final class EmberAccountManager: ObservableObject {
         let targetID = accountID ?? selectedAccountID
         guard var account = accounts.first(where: { $0.id == targetID }) else { throw EmberAccountStoreError.missingAccount }
         guard let team = account.selectedTeam else { throw EmberAccountStoreError.missingTeam }
-        let pairingRecord = try EmberPairingStore.read()
-        guard let udid = pairingRecord.udid, !udid.isEmpty else {
-            throw EmberAccountStoreError.missingPairingUDID
-        }
+        let udid = try EmberInstallTarget.targetUDID()
 
-        status = "Registering this device and App ID..."
+        status = "Registering \(EmberInstallTarget.targetName) and App ID..."
         var devices = try await portal.fetchDevices(for: team, session: account.auth.session)
         if !devices.contains(where: { $0.identifier.caseInsensitiveCompare(udid) == .orderedSame }) {
             let registered = try await portal.registerDevice(
-                name: UIDevice.current.name,
+                name: EmberInstallTarget.targetName,
                 identifier: udid,
-                type: UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone,
+                type: EmberInstallTarget.isRemote ? .iPhone : (UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone),
                 team: team,
                 session: account.auth.session
             )
@@ -398,6 +395,9 @@ final class EmberAccountManager: ObservableObject {
 
         status = "Downloading a fresh provisioning profile..."
         let profile = try await portal.downloadProvisioningProfile(for: appID, isTeamProfile: true, team: team, session: account.auth.session)
+        guard profile.deviceIDs.contains(where: { $0.caseInsensitiveCompare(udid) == .orderedSame }) else {
+            throw EmberError.message("Apple's profile does not include the selected iPhone (\(udid)). No signing identity was imported.")
+        }
         guard let p12 else { throw EmberAccountStoreError.missingAccount }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("EmberAccount_\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -442,16 +442,13 @@ final class EmberAccountManager: ObservableObject {
               ids.filter({ $0 != host }).allSatisfy({ $0.hasPrefix(host + ".") }) else {
             throw EmberError.message("Invalid host or extension bundle IDs. Extensions must start with the host bundle ID.")
         }
-        let pairingRecord = try EmberPairingStore.read()
-        guard let udid = pairingRecord.udid, !udid.isEmpty else {
-            throw EmberAccountStoreError.missingPairingUDID
-        }
-        status = "Registering this iPhone for all embedded extensions…"
+        let udid = try EmberInstallTarget.targetUDID()
+        status = "Registering \(EmberInstallTarget.targetName) for all embedded extensions…"
         var devices = try await portal.fetchDevices(for: team, session: account.auth.session)
         if !devices.contains(where: { $0.identifier.caseInsensitiveCompare(udid) == .orderedSame }) {
             let device = try await portal.registerDevice(
-                name: UIDevice.current.name, identifier: udid,
-                type: UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone,
+                name: EmberInstallTarget.targetName, identifier: udid,
+                type: EmberInstallTarget.isRemote ? .iPhone : (UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone),
                 team: team, session: account.auth.session
             )
             devices.append(device)
@@ -494,7 +491,7 @@ final class EmberAccountManager: ObservableObject {
             status = "Downloading individual provisioning profile: \(id)"
             let profile = try await portal.downloadProvisioningProfile(
                 for: appID, isTeamProfile: true,
-                deviceType: UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone,
+                deviceType: EmberInstallTarget.isRemote ? .iPhone : (UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone),
                 team: team, session: account.auth.session
             )
             guard profile.bundleIdentifier == id else {

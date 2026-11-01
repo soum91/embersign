@@ -86,10 +86,10 @@ final class EmberIOSExtensionsModel: ObservableObject {
             guard let p12 = certificateData else {
                 throw EmberIOSProfileError.invalid("Select your existing .p12 certificate.")
             }
-            let udid = try? EmberPairingStore.read().udid
+            let udid = try EmberInstallTarget.targetUDID()
             let result = try EmberIOSExistingSigner.resolve(
                 bundleIDs: bundleIDs, p12: p12, password: p12Password,
-                availableProfiles: importedProfiles, deviceUDID: udid ?? nil
+                availableProfiles: importedProfiles, deviceUDID: udid
             )
             preflight = result.descriptions
             status = "All \(bundleIDs.count) targets have compatible profiles. Ready for signing."
@@ -142,10 +142,10 @@ final class EmberIOSExtensionsModel: ObservableObject {
                 guard let p12 = certificateData else {
                     throw EmberIOSProfileError.invalid("Import your existing .p12 certificate first.")
                 }
-                let udid = try? EmberPairingStore.read().udid
+                let udid = try EmberInstallTarget.targetUDID()
                 let resolved = try EmberIOSExistingSigner.resolve(
                     bundleIDs: bundleIDs, p12: p12, password: p12Password,
-                    availableProfiles: importedProfiles, deviceUDID: udid ?? nil
+                    availableProfiles: importedProfiles, deviceUDID: udid
                 )
                 identity = resolved.identity
                 preflight = resolved.descriptions
@@ -163,10 +163,9 @@ final class EmberIOSExtensionsModel: ObservableObject {
                                                 identity: identity, root: root,
                                                 password: p12PasswordForSign)
             }.value
-            status = "Installing verified app and keyboard extensions…"
-            let installer = InstallationProxy(viewModel: InstallerStatusViewModel(isIdevice: true))
-            try await installer.install(at: signed)
-            status = "Installer accepted the signed IPA. Open iPhone Settings → General → Keyboard → Keyboards to enable Aukkhor."
+            status = "Installing on \(EmberInstallTarget.targetName)…"
+            try await EmberInstallTarget.install(at: signed, viewModel: InstallerStatusViewModel(isIdevice: true))
+            status = "\(EmberInstallTarget.targetName) accepted the signed IPA. Enable the keyboard in that iPhone's Settings → General → Keyboard → Keyboards."
         } catch {
             status = error.localizedDescription
             EmberErrorCenter.shared.record(error, operation: "Sign and install iOS extensions")
