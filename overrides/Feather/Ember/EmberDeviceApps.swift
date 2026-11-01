@@ -197,6 +197,10 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
 
     func uninstall(_ app: AppInfo, removePortalRecords: Bool) async {
         guard let bundleID = app.CFBundleIdentifier else { return }
+        guard !hasSavedProfiles(bundleID) else {
+            status = "Restore the app's saved provisioning profiles before uninstalling it. Otherwise its data may be lost."
+            return
+        }
         isLoading = true
         do {
             try await InstallationAppProxy.deleteApp(for: bundleID)
@@ -245,9 +249,9 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
             }.value
             let matching = rawProfiles.compactMap { try? EmberIOSProvisionProfile.parse($0) }
                 .filter { profile in
-                    guard profile.team == teamID, !profile.applicationPattern.hasSuffix("*") else { return false }
-                    let root = teamID + "." + bundleID
-                    return profile.applicationPattern == root || profile.applicationPattern.hasPrefix(root + ".")
+                    // An app extension can have a similar bundle prefix but be a different
+                    // installed product. Do not modify it without a verified IPA manifest.
+                    profile.team == teamID && profile.applicationPattern == teamID + "." + bundleID
                 }
             guard matching.contains(where: { $0.applicationPattern == teamID + "." + bundleID }) else {
                 throw EmberSlotError.message("No exact installed provisioning profile for \(bundleID). Nothing was changed.")
@@ -393,7 +397,9 @@ struct EmberDeviceAppsView: View {
                         }
                     }
                     .swipeActions {
-                        Button(role: .destructive) { pendingRemoval = app } label: { Label("Remove", systemImage: "trash") }
+                        if !model.hasSavedProfiles(app.CFBundleIdentifier) {
+                            Button(role: .destructive) { pendingRemoval = app } label: { Label("Remove", systemImage: "trash") }
+                        }
                         if model.isFreeTeam(app.teamIdentifier),
                            !model.hasSavedProfiles(app.CFBundleIdentifier),
                            app.CFBundleIdentifier != Bundle.main.bundleIdentifier {
@@ -443,10 +449,12 @@ struct EmberDeviceAppsView: View {
                             Text("The app's data is not backed up. Profile removal is reversible using the stored originals, but it is not the complete Zeus or AltStore backup workflow.")
                         }
                     }
-                    Section {
-                        Button(role: .destructive) { pendingRemoval = app; selected = nil } label: { Label("Uninstall or revoke", systemImage: "trash") }
-                    } footer: {
-                        Text("Removing the portal App ID does not guarantee immediate quota recovery. Apple controls the Personal Team seven-day registration window.")
+                    if !model.hasSavedProfiles(app.CFBundleIdentifier) {
+                        Section {
+                            Button(role: .destructive) { pendingRemoval = app; selected = nil } label: { Label("Uninstall or revoke", systemImage: "trash") }
+                        } footer: {
+                            Text("Removing the portal App ID does not guarantee immediate quota recovery. Apple controls the Personal Team seven-day registration window.")
+                        }
                     }
                 }
                 .navigationTitle(app.displayName)
