@@ -419,82 +419,7 @@ struct EmberDeviceAppsView: View {
         }
         .navigationTitle("Installed apps")
         .task { await model.scan() }
-        .sheet(item: $selected) { app in
-            NavigationStack {
-                List {
-                    Section("Application") {
-                        LabeledContent("Name", value: app.displayName)
-                        LabeledContent("Bundle ID", value: app.CFBundleIdentifier ?? "Unknown")
-                        LabeledContent("Version", value: app.CFBundleShortVersionString ?? "Unknown")
-                        LabeledContent("Build", value: app.CFBundleVersion ?? "Unknown")
-                        LabeledContent("Minimum iOS", value: app.MinimumOSVersion ?? "Unknown")
-                    }
-                    Section("Signing") {
-                        LabeledContent("Signer", value: app.SignerIdentity ?? "Unknown")
-                        LabeledContent("Team ID", value: app.teamIdentifier ?? "Unknown")
-                        LabeledContent("Account", value: accounts.account(forTeamID: app.teamIdentifier)?.auth.account.appleID ?? "Not matched")
-                        LabeledContent("Application ID", value: app.applicationIdentifier ?? "Unknown")
-                        LabeledContent("JIT entitlement", value: app.getTaskAllow == true ? "Enabled" : "Not enabled")
-                    }
-                    if let bundleID = app.CFBundleIdentifier,
-                       bundleID != Bundle.main.bundleIdentifier {
-                        Section("Launch from EmberSign") {
-                            Toggle("Always open with JIT", isOn: Binding(
-                                get: { jit.prefersJIT(for: bundleID) },
-                                set: { jit.setPrefersJIT($0, for: bundleID) }
-                            ))
-                            Button {
-                                selected = nil
-                                Task { await jit.openFromLibrary(bundleID) }
-                            } label: {
-                                Label(jit.prefersJIT(for: bundleID) ? "Open with JIT" : "Open without JIT",
-                                      systemImage: jit.prefersJIT(for: bundleID) ? "bolt.fill" : "play.fill")
-                            }.disabled(jit.isBusy)
-                            Text("The JIT preference applies only when opening through EmberSign. iOS Home Screen launches cannot be intercepted. Both actions require a working paired-device tunnel on iOS 17.4+.")
-                                .font(.footnote).foregroundStyle(.secondary)
-                            if !jit.status.isEmpty { Text(jit.status).font(.caption).foregroundStyle(.secondary) }
-                        }
-                    }
-                    if let bundleID = app.CFBundleIdentifier,
-                       accounts.account(forTeamID: app.teamIdentifier) != nil,
-                       refresh.trackedApps().contains(where: { $0.id == bundleID }) {
-                        Section("Refresh signing") {
-                            Button {
-                                selected = nil
-                                Task { _ = await refresh.refresh(bundleID: bundleID) }
-                            } label: { Label("Re-sign and reinstall this app", systemImage: "arrow.triangle.2.circlepath") }
-                                .disabled(refresh.isRunning)
-                        } footer: {
-                            Text("Uses the Apple Account EmberSign originally linked to this app. It does not replace a purchased certificate or change the app's signing team.")
-                        }
-                    }
-                    if model.isFreeTeam(app.teamIdentifier) {
-                        Section {
-                            if model.hasSavedProfiles(app.CFBundleIdentifier) {
-                                Text("This app already has saved profiles. Restore them from the Deactivated / recovery section.")
-                                    .font(.footnote).foregroundStyle(.secondary)
-                            } else if app.CFBundleIdentifier != Bundle.main.bundleIdentifier {
-                                Button {
-                                    pendingDeactivation = app
-                                    selected = nil
-                                } label: { Label("Suspend profiles (experimental)", systemImage: "pause.circle") }
-                            }
-                        } footer: {
-                            Text("Does not free a three-app slot. The app's data is not backed up. Profile removal is reversible using the stored originals, but this is not the Zeus backup/deactivation workflow.")
-                        }
-                    }
-                    if !model.hasSavedProfiles(app.CFBundleIdentifier) {
-                        Section {
-                            Button(role: .destructive) { pendingRemoval = app; selected = nil } label: { Label("Uninstall or revoke", systemImage: "trash") }
-                        } footer: {
-                            Text("Removing the portal App ID does not guarantee immediate quota recovery. Apple controls the Personal Team seven-day registration window.")
-                        }
-                    }
-                }
-                .navigationTitle(app.displayName)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { selected = nil } } }
-            }
-        }
+        .sheet(item: $selected) { app in appDetails(app) }
         .confirmationDialog("Remove \(pendingRemoval?.displayName ?? "app")?", isPresented: Binding(
             get: { pendingRemoval != nil },
             set: { if !$0 { pendingRemoval = nil } }
@@ -538,6 +463,87 @@ struct EmberDeviceAppsView: View {
             Button("Cancel", role: .cancel) { pendingReactivation = nil }
         } message: {
             Text("Restore the saved provisioning profiles to this iPhone. This cannot restore app data if the app was uninstalled.")
+        }
+    }
+
+    private func appDetails(_ app: AppInfo) -> some View {
+        NavigationStack {
+            List {
+                Section("Application") {
+                    LabeledContent("Name", value: app.displayName)
+                    LabeledContent("Bundle ID", value: app.CFBundleIdentifier ?? "Unknown")
+                    LabeledContent("Version", value: app.CFBundleShortVersionString ?? "Unknown")
+                    LabeledContent("Build", value: app.CFBundleVersion ?? "Unknown")
+                    LabeledContent("Minimum iOS", value: app.MinimumOSVersion ?? "Unknown")
+                }
+                Section("Signing") {
+                    LabeledContent("Signer", value: app.SignerIdentity ?? "Unknown")
+                    LabeledContent("Team ID", value: app.teamIdentifier ?? "Unknown")
+                    LabeledContent("Account", value: accounts.account(forTeamID: app.teamIdentifier)?.auth.account.appleID ?? "Not matched")
+                    LabeledContent("Application ID", value: app.applicationIdentifier ?? "Unknown")
+                    LabeledContent("JIT entitlement", value: app.getTaskAllow == true ? "Enabled" : "Not enabled")
+                }
+                if let bundleID = app.CFBundleIdentifier, bundleID != Bundle.main.bundleIdentifier {
+                    launchControls(bundleID)
+                }
+                if let bundleID = app.CFBundleIdentifier,
+                   accounts.account(forTeamID: app.teamIdentifier) != nil,
+                   refresh.trackedApps().contains(where: { $0.id == bundleID }) {
+                    Section("Refresh signing") {
+                        Button {
+                            selected = nil
+                            Task { _ = await refresh.refresh(bundleID: bundleID) }
+                        } label: { Label("Re-sign and reinstall this app", systemImage: "arrow.triangle.2.circlepath") }
+                            .disabled(refresh.isRunning)
+                    } footer: {
+                        Text("Uses the Apple Account EmberSign linked to this app. Check its current signing identity before refreshing.")
+                    }
+                }
+                if model.isFreeTeam(app.teamIdentifier) {
+                    Section {
+                        if model.hasSavedProfiles(app.CFBundleIdentifier) {
+                            Text("This app has saved profiles. Restore them from the recovery section.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        } else if app.CFBundleIdentifier != Bundle.main.bundleIdentifier {
+                            Button {
+                                pendingDeactivation = app
+                                selected = nil
+                            } label: { Label("Suspend profiles (experimental)", systemImage: "pause.circle") }
+                        }
+                    } footer: {
+                        Text("Does not free an app slot. Profile restoration is possible, but this is not an app-data backup.")
+                    }
+                }
+                if !model.hasSavedProfiles(app.CFBundleIdentifier) {
+                    Section {
+                        Button(role: .destructive) { pendingRemoval = app; selected = nil } label: { Label("Uninstall or revoke", systemImage: "trash") }
+                    } footer: {
+                        Text("Apple controls when a Personal Team App ID counts as reusable.")
+                    }
+                }
+            }
+            .navigationTitle(app.displayName)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { selected = nil } } }
+        }
+    }
+
+    @ViewBuilder
+    private func launchControls(_ bundleID: String) -> some View {
+        Section("Launch from EmberSign") {
+            Toggle("Always open with JIT", isOn: Binding(
+                get: { jit.prefersJIT(for: bundleID) },
+                set: { jit.setPrefersJIT($0, for: bundleID) }
+            ))
+            Button {
+                selected = nil
+                Task { await jit.openFromLibrary(bundleID) }
+            } label: {
+                Label(jit.prefersJIT(for: bundleID) ? "Open with JIT" : "Open without JIT",
+                      systemImage: jit.prefersJIT(for: bundleID) ? "bolt.fill" : "play.fill")
+            }.disabled(jit.isBusy)
+            Text("JIT preference applies only to launches through EmberSign. Home Screen launches are unaffected. Requires pairing and LocalDevVPN on iOS 17.4+.")
+                .font(.footnote).foregroundStyle(.secondary)
+            if !jit.status.isEmpty { Text(jit.status).font(.caption).foregroundStyle(.secondary) }
         }
     }
 }
