@@ -2,7 +2,7 @@ name: Build EmberSign
 
 on:
   push:
-    branches: [main, watch-native]
+    branches: [main, watch-native, feature/zeus-slot-deactivation]
   workflow_dispatch:
 
 permissions:

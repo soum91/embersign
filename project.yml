@@ -99,6 +99,8 @@ targets:
       product: Zsign
     - package: IDeviceKit
       product: IDeviceSwift
+    - package: IDeviceKit
+      product: IDevice
     - package: Zip
       product: Zip
     - package: ZIPFoundation
