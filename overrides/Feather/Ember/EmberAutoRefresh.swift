@@ -172,8 +172,8 @@ final class EmberAutoRefreshManager: ObservableObject {
                   seen.insert(bundleID).inserted else { return false }
             if force { return true }
             return EmberSigningExpiryPolicy.needsRefresh(
-                profile: profileExpiry(for: bundleID),
-                certificate: Storage.shared.getCertificate(from: app)?.expiration,
+                inventoryProfile: profileExpiry(for: bundleID),
+                storedProfile: Storage.shared.getCertificate(from: app)?.expiration,
                 thresholdDays: thresholdDays
             )
         } : []

@@ -82,21 +82,21 @@ final class EmberCoreTests: XCTestCase {
         XCTAssertNoThrow(try EmberJITProtocol.activationMessage(data: Data(#""Enabled JIT for 'App'!""#.utf8)))
     }
 
-    func testProfileExpiryTakesPrecedenceOverLongLivedCertificate() {
+    func testEarliestProfileExpiryDeterminesRefresh() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let profile = now.addingTimeInterval(36 * 3_600)
-        let certificate = now.addingTimeInterval(250 * 86_400)
-        XCTAssertEqual(EmberSigningExpiryPolicy.effectiveExpiry(profile: profile, certificate: certificate), profile)
+        let storedProfile = now.addingTimeInterval(4 * 86_400)
+        XCTAssertEqual(EmberSigningExpiryPolicy.effectiveExpiry(inventoryProfile: profile, storedProfile: storedProfile), profile)
         XCTAssertTrue(EmberSigningExpiryPolicy.needsRefresh(
-            profile: profile, certificate: certificate, now: now, thresholdDays: 2))
+            inventoryProfile: profile, storedProfile: storedProfile, now: now, thresholdDays: 2))
         XCTAssertFalse(EmberSigningExpiryPolicy.needsRefresh(
-            profile: profile, certificate: certificate, now: now, thresholdDays: 1))
+            inventoryProfile: profile, storedProfile: storedProfile, now: now, thresholdDays: 1))
     }
 
     func testUnknownSigningExpiryCannotSilentlySkipRefresh() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         XCTAssertTrue(EmberSigningExpiryPolicy.needsRefresh(
-            profile: nil, certificate: nil, now: now, thresholdDays: 2))
+            inventoryProfile: nil, storedProfile: nil, now: now, thresholdDays: 2))
     }
 
     func testModernWatchCompanionRequiresThreeDifferentProfiles() throws {
