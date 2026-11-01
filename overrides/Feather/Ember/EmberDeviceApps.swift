@@ -351,6 +351,8 @@ private extension AppInfo {
 struct EmberDeviceAppsView: View {
     @StateObject private var model = EmberDeviceAppsModel()
     @ObservedObject private var accounts = EmberAccountManager.shared
+    @ObservedObject private var jit = EmberJITService.shared
+    @ObservedObject private var refresh = EmberAutoRefreshManager.shared
     @State private var selected: AppInfo?
     @State private var pendingRemoval: AppInfo?
     @State private var pendingDeactivation: AppInfo?
@@ -367,14 +369,14 @@ struct EmberDeviceAppsView: View {
                 Text("The list comes from Apple's paired-device installation service, not from private app folders. A working pairing tunnel is required.")
             }
             if !model.inactive.isEmpty {
-                Section("Deactivated / recovery") {
+                Section("Saved provisioning profiles / recovery") {
                     ForEach(model.inactive) { record in
                         Button { pendingReactivation = record } label: {
                             VStack(alignment: .leading, spacing: 4) {
-                                Label(record.name, systemImage: record.deactivated ? "pause.circle" : "exclamationmark.triangle")
+                                Label(record.name, systemImage: record.deactivated ? "checkmark.shield" : "exclamationmark.triangle")
                                     .foregroundStyle(.primary)
                                 Text(record.id).font(.caption.monospaced()).foregroundStyle(.secondary)
-                                Text(record.deactivated ? "Restore provisioning profiles" : "Pending operation, recover saved profiles")
+                                Text(record.deactivated ? "Restore previously removed profiles" : "Pending operation, recover saved profiles")
                                     .font(.caption).foregroundStyle(.orange)
                             }
                         }
@@ -404,14 +406,14 @@ struct EmberDeviceAppsView: View {
                            !model.hasSavedProfiles(app.CFBundleIdentifier),
                            app.CFBundleIdentifier != Bundle.main.bundleIdentifier {
                             Button { pendingDeactivation = app } label: {
-                                Label("Deactivate", systemImage: "pause.circle")
+                                Label("Suspend profiles (experimental)", systemImage: "pause.circle")
                             }.tint(.orange)
                         }
                     }
                 }
             }
             Section {
-                Text("Experimental free-account slot management. Deactivate removes only this app's exact on-device provisioning profiles and saves copies for Reactivate. It does not uninstall the app, back up its documents, or remove Apple portal App IDs. Whether the three-app limit is freed depends on iOS and must be verified on your device. Purchased/enterprise certificate apps are excluded.")
+                Text("Experimental profile backup/removal only. This does not deactivate an app like Zeus or free an installed-app slot. The app stays installed. Do not use this to make room for another app. Purchased/enterprise certificate apps are excluded.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -434,6 +436,38 @@ struct EmberDeviceAppsView: View {
                         LabeledContent("Application ID", value: app.applicationIdentifier ?? "Unknown")
                         LabeledContent("JIT entitlement", value: app.getTaskAllow == true ? "Enabled" : "Not enabled")
                     }
+                    if let bundleID = app.CFBundleIdentifier,
+                       bundleID != Bundle.main.bundleIdentifier {
+                        Section("Launch from EmberSign") {
+                            Toggle("Always open with JIT", isOn: Binding(
+                                get: { jit.prefersJIT(for: bundleID) },
+                                set: { jit.setPrefersJIT($0, for: bundleID) }
+                            ))
+                            Button {
+                                selected = nil
+                                Task { await jit.openFromLibrary(bundleID) }
+                            } label: {
+                                Label(jit.prefersJIT(for: bundleID) ? "Open with JIT" : "Open without JIT",
+                                      systemImage: jit.prefersJIT(for: bundleID) ? "bolt.fill" : "play.fill")
+                            }.disabled(jit.isBusy)
+                            Text("The JIT preference applies only when opening through EmberSign. iOS Home Screen launches cannot be intercepted. Both actions require a working paired-device tunnel on iOS 17.4+.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                            if !jit.status.isEmpty { Text(jit.status).font(.caption).foregroundStyle(.secondary) }
+                        }
+                    }
+                    if let bundleID = app.CFBundleIdentifier,
+                       accounts.account(forTeamID: app.teamIdentifier) != nil,
+                       refresh.trackedApps().contains(where: { $0.id == bundleID }) {
+                        Section("Refresh signing") {
+                            Button {
+                                selected = nil
+                                Task { _ = await refresh.refresh(bundleID: bundleID) }
+                            } label: { Label("Re-sign and reinstall this app", systemImage: "arrow.triangle.2.circlepath") }
+                                .disabled(refresh.isRunning)
+                        } footer: {
+                            Text("Uses the Apple Account EmberSign originally linked to this app. It does not replace a purchased certificate or change the app's signing team.")
+                        }
+                    }
                     if model.isFreeTeam(app.teamIdentifier) {
                         Section {
                             if model.hasSavedProfiles(app.CFBundleIdentifier) {
@@ -443,10 +477,10 @@ struct EmberDeviceAppsView: View {
                                 Button {
                                     pendingDeactivation = app
                                     selected = nil
-                                } label: { Label("Deactivate (experimental)", systemImage: "pause.circle") }
+                                } label: { Label("Suspend profiles (experimental)", systemImage: "pause.circle") }
                             }
                         } footer: {
-                            Text("The app's data is not backed up. Profile removal is reversible using the stored originals, but it is not the complete Zeus or AltStore backup workflow.")
+                            Text("Does not free a three-app slot. The app's data is not backed up. Profile removal is reversible using the stored originals, but this is not the Zeus backup/deactivation workflow.")
                         }
                     }
                     if !model.hasSavedProfiles(app.CFBundleIdentifier) {
@@ -477,7 +511,7 @@ struct EmberDeviceAppsView: View {
             }
             Button("Cancel", role: .cancel) { pendingRemoval = nil }
         }
-        .confirmationDialog("Deactivate \(pendingDeactivation?.displayName ?? "app")?", isPresented: Binding(
+        .confirmationDialog("Suspend profiles for \(pendingDeactivation?.displayName ?? "app")?", isPresented: Binding(
             get: { pendingDeactivation != nil },
             set: { if !$0 { pendingDeactivation = nil } }
         ), titleVisibility: .visible) {
@@ -489,7 +523,7 @@ struct EmberDeviceAppsView: View {
             }
             Button("Cancel", role: .cancel) { pendingDeactivation = nil }
         } message: {
-            Text("Experimental. The exact profiles are saved locally for Reactivate. No app data backup or uninstall is performed, and freeing the three-app quota is not guaranteed until tested. Do not delete EmberSign or its documents before restoring the profiles.")
+            Text("Experimental. This saves and removes signing profiles only. It DOES NOT free an installed-app slot. No app data backup or uninstall occurs. Do not delete EmberSign or its documents before restoring the profiles.")
         }
         .confirmationDialog("Restore \(pendingReactivation?.name ?? "app")?", isPresented: Binding(
             get: { pendingReactivation != nil },

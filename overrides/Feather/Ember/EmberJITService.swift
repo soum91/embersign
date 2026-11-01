@@ -13,6 +13,72 @@ final class EmberJITService: ObservableObject {
     @Published var devices: [String: String] = [:]
     @Published var history: [String] = []
     @Published var showAppSheet = false
+    @Published private(set) var alwaysOpenWithJIT = Set(
+        UserDefaults.standard.stringArray(forKey: "EmberSign.jit.alwaysOpenBundleIDs") ?? []
+    )
+
+    func prefersJIT(for identifier: String) -> Bool {
+        alwaysOpenWithJIT.contains(identifier)
+    }
+
+    func setPrefersJIT(_ enabled: Bool, for identifier: String) {
+        guard !identifier.isEmpty, identifier != Bundle.main.bundleIdentifier else { return }
+        if enabled { alwaysOpenWithJIT.insert(identifier) }
+        else { alwaysOpenWithJIT.remove(identifier) }
+        UserDefaults.standard.set(alwaysOpenWithJIT.sorted(), forKey: "EmberSign.jit.alwaysOpenBundleIDs")
+    }
+
+    /// This preference is honored only when the app is launched through EmberSign.
+    /// iOS does not let EmberSign intercept an ordinary Home Screen app launch.
+    func openFromLibrary(_ identifier: String) async {
+        guard !identifier.isEmpty, !isBusy else { return }
+        bundleID = identifier
+        if prefersJIT(for: identifier) {
+            let settings = UserDefaults.standard
+            let port = settings.integer(forKey: "EmberSign.jit.endpoint.port")
+            let timeout = settings.integer(forKey: "EmberSign.jit.endpoint.timeout")
+            await enableBuiltIn(
+                deviceAddress: settings.string(forKey: "EmberSign.jit.endpoint.deviceIP") ?? "10.7.0.1",
+                port: port == 0 ? 49152 : port,
+                timeout: timeout == 0 ? 5 : timeout
+            )
+            return
+        }
+        guard #available(iOS 17.4, *) else {
+            record("Opening through the device service requires iOS 17.4 or newer. Open this app from the Home Screen instead.")
+            return
+        }
+        do {
+            let pairing = try EmberPairingStore.read()
+            guard pairing.kind == .remote else {
+                throw EmberError.message("Import remote pairing credentials and connect LocalDevVPN to launch from EmberSign.")
+            }
+            let settings = UserDefaults.standard
+            let host = settings.string(forKey: "EmberSign.jit.endpoint.deviceIP") ?? "10.7.0.1"
+            let selectedPort = settings.integer(forKey: "EmberSign.jit.endpoint.port")
+            let port = selectedPort == 0 ? 49152 : selectedPort
+            guard (1...65535).contains(port) else {
+                throw EmberError.message("Invalid LocalDevVPN device port.")
+            }
+            var ipv4 = in_addr()
+            guard host.withCString({ inet_pton(AF_INET, $0, &ipv4) }) == 1 else {
+                throw EmberError.message("Invalid LocalDevVPN Device IP.")
+            }
+            let config = StikJIT.Configuration(deviceAddress: host, rsdPort: UInt16(port), connectionTimeout: 5)
+            let url = EmberPairingStore.url
+            isBusy = true
+            record("Launching \(identifier) without JIT...")
+            let outcome = await Task.detached(priority: .userInitiated) { () -> Result<Int32, Error> in
+                do { return .success(try EmberTargetLauncher.launch(bundleID: identifier, pairingFile: url, configuration: config)) }
+                catch { return .failure(error) }
+            }.value
+            isBusy = false
+            switch outcome {
+            case .success(let pid): record("Launched \(identifier) (PID \(pid)). JIT was not requested.")
+            case .failure(let error): record("Launch failed: \(error.localizedDescription)")
+            }
+        } catch { record(error.localizedDescription) }
+    }
 
     func present(bundleID: String) {
         self.bundleID = bundleID

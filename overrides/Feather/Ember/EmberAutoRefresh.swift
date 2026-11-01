@@ -4,6 +4,11 @@ import CoreData
 import IDeviceSwift
 import UIKit
 
+struct EmberRefreshEntry: Identifiable {
+    let id: String
+    let name: String
+}
+
 @MainActor
 final class EmberAutoRefreshManager: ObservableObject {
     static let shared = EmberAutoRefreshManager()
@@ -30,19 +35,48 @@ final class EmberAutoRefreshManager: ObservableObject {
         UIApplication.shared.setMinimumBackgroundFetchInterval(shouldFetch ? 6 * 60 * 60 : UIApplication.backgroundFetchIntervalNever)
     }
 
+    /// Only apps with a known EmberSign Apple Account can be refreshed here.
+    /// A purchased/enterprise certificate is never silently replaced by a free account.
+    func trackedApps() -> [EmberRefreshEntry] {
+        var seen = Set<String>()
+        return signedApps().compactMap { app in
+            guard let id = app.identifier, !id.isEmpty,
+                  id != Bundle.main.bundleIdentifier,
+                  EmberAccountManager.shared.accountID(for: id) != nil,
+                  seen.insert(id).inserted else { return nil }
+            return EmberRefreshEntry(id: id, name: app.name ?? id)
+        }
+    }
+
+    func refresh(bundleID: String) async -> Bool {
+        guard !isRunning else { return false }
+        guard EmberAccountManager.shared.accountID(for: bundleID) != nil,
+              let app = signedApps().first(where: { $0.identifier == bundleID }) else {
+            status = "No signed IPA and Apple Account are recorded for \(bundleID). Import it before refreshing."
+            return false
+        }
+        return await performRefresh([app], includeWatch: false)
+    }
+
     func refreshAll(force: Bool = false) async -> Bool {
         guard !isRunning else { return false }
-        isRunning = true
-        defer { isRunning = false }
+        var seen = Set<String>()
         let apps: [Signed] = (enabled || force) ? signedApps().filter { app in
             guard let bundleID = app.identifier,
                   bundleID != Bundle.main.bundleIdentifier,
-                  EmberAccountManager.shared.accountID(for: bundleID) != nil else { return false }
+                  EmberAccountManager.shared.accountID(for: bundleID) != nil,
+                  seen.insert(bundleID).inserted else { return false }
             if force { return true }
             guard let expiry = Storage.shared.getCertificate(from: app)?.expiration else { return true }
             return expiry.timeIntervalSinceNow <= Double(thresholdDays) * 86_400
         } : []
 
+        return await performRefresh(apps, includeWatch: true, forceWatch: force)
+    }
+
+    private func performRefresh(_ apps: [Signed], includeWatch: Bool, forceWatch: Bool = false) async -> Bool {
+        isRunning = true
+        defer { isRunning = false }
         var failures = 0
         for app in apps {
             guard let bundleID = app.identifier else { continue }
@@ -61,7 +95,12 @@ final class EmberAutoRefreshManager: ObservableObject {
                 EmberErrorCenter.shared.record(error, operation: "Auto refresh \(bundleID)")
             }
         }
-        let watchResult = await EmberWatchRefreshManager.shared.refreshIfNeeded(force: force && EmberWatchRefreshManager.shared.enabled)
+        let watchResult: EmberWatchRefreshOutcome
+        if includeWatch {
+            watchResult = await EmberWatchRefreshManager.shared.refreshIfNeeded(force: forceWatch && EmberWatchRefreshManager.shared.enabled)
+        } else {
+            watchResult = .skipped
+        }
         if case .failed = watchResult { failures += 1 }
         lastRun = Date()
         UserDefaults.standard.set(lastRun, forKey: "EmberSign.lastRefresh")
@@ -123,6 +162,20 @@ struct EmberAutoRefreshView: View {
             Section("Status") {
                 if let lastRun = refresh.lastRun { LabeledContent("Last attempt", value: lastRun.formatted(date: .abbreviated, time: .shortened)) }
                 Text(refresh.status).textSelection(.enabled)
+            }
+            Section("Tracked iPhone apps") {
+                ForEach(refresh.trackedApps()) { app in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(app.name)
+                            Text(app.id).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Refresh") { Task { _ = await refresh.refresh(bundleID: app.id) } }
+                            .disabled(refresh.isRunning)
+                            .buttonStyle(.bordered)
+                    }
+                }
             }
         }
         .navigationTitle("Auto refresh")
