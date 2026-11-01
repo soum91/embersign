@@ -3,6 +3,7 @@ import SwiftUI
 import CoreData
 import IDeviceSwift
 import UIKit
+import UserNotifications
 
 struct EmberRefreshEntry: Identifiable {
     let id: String
@@ -15,6 +16,87 @@ final class EmberAutoRefreshManager: ObservableObject {
     @Published var isRunning = false
     @Published var status = "Auto refresh runs when iOS gives EmberSign background time and the pairing tunnel is reachable."
     @Published var lastRun: Date? = UserDefaults.standard.object(forKey: "EmberSign.lastRefresh") as? Date
+    @Published private(set) var reminderStatus = "Enable reminders to receive a notification before tracked app signing expires."
+
+    var remindersEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "EmberSign.refreshReminders")
+    }
+
+    var reminderDays: Int {
+        get { max(1, UserDefaults.standard.integer(forKey: "EmberSign.reminderDays") == 0 ? 2 : UserDefaults.standard.integer(forKey: "EmberSign.reminderDays")) }
+        set {
+            UserDefaults.standard.set(max(1, min(newValue, 3)), forKey: "EmberSign.reminderDays")
+            objectWillChange.send()
+            Task { await scheduleReminders() }
+        }
+    }
+
+    func setReminders(_ enabled: Bool) async {
+        if enabled {
+            do {
+                guard try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) else {
+                    reminderStatus = "Notification permission was denied. Enable it in iOS Settings to receive reminders."
+                    return
+                }
+            } catch {
+                reminderStatus = "Could not request reminder permission: " + error.localizedDescription
+                return
+            }
+        }
+        UserDefaults.standard.set(enabled, forKey: "EmberSign.refreshReminders")
+        objectWillChange.send()
+        await scheduleReminders()
+    }
+
+    /// Notifications are scheduled from known certificate expiry dates. iOS may
+    /// delay delivery; this never claims to extend an app's signing lifetime.
+    func scheduleReminders() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = UserDefaults.standard
+        let oldIDs = settings.stringArray(forKey: "EmberSign.refreshReminderIDs") ?? []
+        center.removePendingNotificationRequests(withIdentifiers: oldIDs)
+        settings.set([String](), forKey: "EmberSign.refreshReminderIDs")
+        guard remindersEnabled else {
+            reminderStatus = "Refresh reminders are off."
+            return
+        }
+        let authorization = await center.notificationSettings().authorizationStatus
+        guard authorization == .authorized || authorization == .provisional else {
+            reminderStatus = "Notifications are not authorized. Enable them in iOS Settings."
+            return
+        }
+        let lead = TimeInterval(reminderDays) * 86_400
+        var identifiers: [String] = []
+        var seen = Set<String>()
+        for app in signedApps() {
+            guard let bundleID = app.identifier,
+                  let accountID = EmberAccountManager.shared.accountID(for: bundleID),
+                  let inventory = EmberAccountManager.shared.inventories[accountID],
+                  seen.insert(bundleID).inserted,
+                  let expiry = inventory.profiles
+                    .filter({ $0.bundleIdentifier == bundleID })
+                    .map(\.dateExpire).min() else { continue }
+            let when = expiry.addingTimeInterval(-lead)
+            guard when.timeIntervalSinceNow > 60, identifiers.count < 30 else { continue }
+            let identifier = "EmberSign.refresh." + bundleID
+            let content = UNMutableNotificationContent()
+            content.title = "Refresh \(app.name ?? bundleID)"
+            content.body = "Its development signing is due to expire in \(reminderDays) day(s). Open EmberSign to re-sign it."
+            content.sound = .default
+            let date = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: when)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: date, repeats: false)
+            do {
+                try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
+                identifiers.append(identifier)
+            } catch {
+                EmberErrorCenter.shared.record(error, operation: "Schedule refresh reminder")
+            }
+        }
+        settings.set(identifiers, forKey: "EmberSign.refreshReminderIDs")
+        reminderStatus = identifiers.isEmpty
+            ? "No future profile expiry dates found. Refresh your Apple Account's provisioning profile list, then reschedule."
+            : "Scheduled \(identifiers.count) reminder(s) from Apple provisioning profile expiry dates."
+    }
 
     var enabled: Bool {
         get { UserDefaults.standard.bool(forKey: "EmberSign.autoRefresh") }
@@ -33,6 +115,7 @@ final class EmberAutoRefreshManager: ObservableObject {
     func configure() {
         let shouldFetch = enabled || EmberWatchRefreshManager.shared.enabled
         UIApplication.shared.setMinimumBackgroundFetchInterval(shouldFetch ? 6 * 60 * 60 : UIApplication.backgroundFetchIntervalNever)
+        if remindersEnabled { Task { await scheduleReminders() } }
     }
 
     /// Only apps with a known EmberSign Apple Account can be refreshed here.
@@ -104,6 +187,7 @@ final class EmberAutoRefreshManager: ObservableObject {
         if case .failed = watchResult { failures += 1 }
         lastRun = Date()
         UserDefaults.standard.set(lastRun, forKey: "EmberSign.lastRefresh")
+        if remindersEnabled { await scheduleReminders() }
         if failures > 0 {
             status = "Finished with \(failures) failure(s). Open Error diagnostics and Watch refresh status."
         } else if apps.isEmpty, case .skipped = watchResult {
@@ -162,6 +246,25 @@ struct EmberAutoRefreshView: View {
             Section("Status") {
                 if let lastRun = refresh.lastRun { LabeledContent("Last attempt", value: lastRun.formatted(date: .abbreviated, time: .shortened)) }
                 Text(refresh.status).textSelection(.enabled)
+            }
+            Section {
+                Toggle("Remind me before signing expires", isOn: Binding(
+                    get: { refresh.remindersEnabled },
+                    set: { enabled in Task { await refresh.setReminders(enabled) } }
+                ))
+                if refresh.remindersEnabled {
+                    Picker("Remind me", selection: Binding(get: { refresh.reminderDays }, set: { refresh.reminderDays = $0 })) {
+                        Text("1 day before").tag(1)
+                        Text("2 days before").tag(2)
+                        Text("3 days before").tag(3)
+                    }
+                    Button("Reschedule reminders") { Task { await refresh.scheduleReminders() } }
+                }
+                Text(refresh.reminderStatus).font(.footnote).foregroundStyle(.secondary)
+            } header: {
+                Text("Expiry notifications")
+            } footer: {
+                Text("Uses provisioning profile expiry dates from the Apple Account inventory. Refresh your account after re-signing. iOS controls delivery.")
             }
             Section("Tracked iPhone apps") {
                 ForEach(refresh.trackedApps()) { app in

@@ -131,7 +131,7 @@ enum EmberAppDataBackup {
                     throw EmberBackupFailure.message("Local backup changed while restoring: \(file.path)")
                 }
                 var handle: OpaquePointer?
-                if let error = afc_file_open(client, file.path, .AfcWrOnly, &handle) {
+                if let error = afc_file_open(client, file.path, AfcWrOnly, &handle) {
                     throw EmberBackupFailure.fromFFI(error)
                 }
                 guard let handle else { throw EmberBackupFailure.message("Cannot open \(file.path) for restore.") }
@@ -211,7 +211,7 @@ enum EmberAppDataBackup {
             return
         }
         var handle: OpaquePointer?
-        if let error = afc_file_open(client, path, .AfcRdOnly, &handle) { throw EmberBackupFailure.fromFFI(error) }
+        if let error = afc_file_open(client, path, AfcRdOnly, &handle) { throw EmberBackupFailure.fromFFI(error) }
         guard let handle else { throw EmberBackupFailure.message("Cannot read \(path)") }
         defer { if let error = afc_file_close(handle) { idevice_error_free(error) } }
         FileManager.default.createFile(atPath: local.path, contents: nil)

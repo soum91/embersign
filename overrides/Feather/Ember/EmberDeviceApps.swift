@@ -334,7 +334,7 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
                     return saved
                 }
                 try EmberSlotStore.save(inactive)
-                status = "Removed \(matching.count) installed profile(s) for \(app.displayName). Reactivate restores them. App data was not backed up; verify the Apple 3-app slot count before relying on it."
+                status = "Deactivated \(app.displayName) by removing \(matching.count) on-device profile(s). Its app and data remain installed. This is the method used by SideStore, but verify that your next installation can use the freed active slot."
             } catch {
                 status = "Profile operation incomplete. The original profiles are saved under Reactivate/Recover."
                 throw error
@@ -403,62 +403,10 @@ struct EmberDeviceAppsView: View {
 
     var body: some View {
         List {
-            Section {
-                Button { Task { await model.scan() } } label: {
-                    HStack { Label("Scan device", systemImage: "arrow.clockwise"); Spacer(); if model.isLoading { ProgressView() } }
-                }.disabled(model.isLoading)
-                Text(model.status).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
-            } footer: {
-                Text("The list comes from Apple's paired-device installation service, not from private app folders. A working pairing tunnel is required.")
-            }
-            if !model.inactive.isEmpty {
-                Section("Saved provisioning profiles / recovery") {
-                    ForEach(model.inactive) { record in
-                        Button { pendingReactivation = record } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Label(record.name, systemImage: record.deactivated ? "checkmark.shield" : "exclamationmark.triangle")
-                                    .foregroundStyle(.primary)
-                                Text(record.id).font(.caption.monospaced()).foregroundStyle(.secondary)
-                                Text(record.deactivated ? "Restore previously removed profiles" : "Pending operation, recover saved profiles")
-                                    .font(.caption).foregroundStyle(.orange)
-                            }
-                        }
-                    }
-                }
-            }
-            Section("Installed apps") {
-                ForEach(model.apps) { app in
-                    Button { selected = app } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(app.displayName).foregroundStyle(.primary)
-                            Text(app.CFBundleIdentifier ?? "Unknown bundle ID").font(.caption.monospaced()).foregroundStyle(.secondary)
-                            HStack {
-                                Text("v\(app.CFBundleShortVersionString ?? "?") (\(app.CFBundleVersion ?? "?"))")
-                                if let team = app.teamIdentifier {
-                                    Text("•")
-                                    Text(accounts.account(forTeamID: team)?.auth.account.appleID ?? team)
-                                }
-                            }.font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .swipeActions {
-                        if !model.hasSavedProfiles(app.CFBundleIdentifier) {
-                            Button(role: .destructive) { pendingRemoval = app } label: { Label("Remove", systemImage: "trash") }
-                        }
-                        if model.isFreeTeam(app.teamIdentifier),
-                           !model.hasSavedProfiles(app.CFBundleIdentifier),
-                           app.CFBundleIdentifier != Bundle.main.bundleIdentifier {
-                            Button { pendingDeactivation = app } label: {
-                                Label("Suspend profiles (experimental)", systemImage: "pause.circle")
-                            }.tint(.orange)
-                        }
-                    }
-                }
-            }
-            Section {
-                Text("Experimental profile backup/removal only. This does not deactivate an app like Zeus or free an installed-app slot. The app stays installed. Do not use this to make room for another app. Purchased/enterprise certificate apps are excluded.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
+            scanSection
+            if !model.inactive.isEmpty { recoverySection }
+            installedSection
+            disclaimerSection
         }
         .navigationTitle("Installed apps")
         .task { await model.scan() }
@@ -479,19 +427,19 @@ struct EmberDeviceAppsView: View {
             }
             Button("Cancel", role: .cancel) { pendingRemoval = nil }
         }
-        .confirmationDialog("Suspend profiles for \(pendingDeactivation?.displayName ?? "app")?", isPresented: Binding(
+        .confirmationDialog("Deactivate \(pendingDeactivation?.displayName ?? "app")?", isPresented: Binding(
             get: { pendingDeactivation != nil },
             set: { if !$0 { pendingDeactivation = nil } }
         ), titleVisibility: .visible) {
             if let app = pendingDeactivation {
-                Button("Save and remove profiles") {
+                Button("Deactivate and retain recovery profiles") {
                     pendingDeactivation = nil
                     Task { await model.deactivate(app) }
                 }
             }
             Button("Cancel", role: .cancel) { pendingDeactivation = nil }
         } message: {
-            Text("Experimental. This saves and removes signing profiles only. It DOES NOT free an installed-app slot. No app data backup or uninstall occurs. Do not delete EmberSign or its documents before restoring the profiles.")
+            Text("Removes installed provisioning profiles while keeping the app and its data on this iPhone. It may free a Personal Team active-app slot. Reactivation requires restoring profiles; keep EmberSign and its data installed. This operation has not been device-tested in EmberSign.")
         }
         .confirmationDialog("Restore \(pendingReactivation?.name ?? "app")?", isPresented: Binding(
             get: { pendingReactivation != nil },
@@ -519,7 +467,75 @@ struct EmberDeviceAppsView: View {
             }
             Button("Cancel", role: .cancel) { pendingDataRestore = nil }
         } message: {
-            Text("Restoration replaces files from the snapshot. This cannot recover app-group or keychain data. Keep the current app installed.")
+            Text("Close the target app before restoring. Restoration replaces files from the snapshot. This cannot recover app-group or keychain data. Keep the current app installed.")
+        }
+    }
+
+    private var scanSection: some View {
+        Section {
+            Button { Task { await model.scan() } } label: {
+                HStack { Label("Scan device", systemImage: "arrow.clockwise"); Spacer(); if model.isLoading { ProgressView() } }
+            }.disabled(model.isLoading)
+            Text(model.status).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+        } footer: {
+            Text("The list comes from Apple's paired-device installation service. A working pairing tunnel is required.")
+        }
+    }
+
+    private var recoverySection: some View {
+        Section("Saved provisioning profiles / recovery") {
+            ForEach(model.inactive) { record in
+                Button { pendingReactivation = record } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(record.name, systemImage: record.deactivated ? "checkmark.shield" : "exclamationmark.triangle")
+                            .foregroundStyle(.primary)
+                        Text(record.id).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        Text(record.deactivated ? "Restore previously removed profiles" : "Pending operation, recover saved profiles")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
+            }
+        }
+    }
+
+    private var installedSection: some View {
+        Section("Installed apps") {
+            ForEach(model.apps) { app in installedRow(app) }
+        }
+    }
+
+    private func installedRow(_ app: AppInfo) -> some View {
+        Button { selected = app } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(app.displayName).foregroundStyle(.primary)
+                Text(app.CFBundleIdentifier ?? "Unknown bundle ID").font(.caption.monospaced()).foregroundStyle(.secondary)
+                HStack {
+                    Text("v\(app.CFBundleShortVersionString ?? "?") (\(app.CFBundleVersion ?? "?"))")
+                    if let team = app.teamIdentifier {
+                        Text("•")
+                        Text(accounts.account(forTeamID: team)?.auth.account.appleID ?? team)
+                    }
+                }.font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .swipeActions {
+            if !model.hasSavedProfiles(app.CFBundleIdentifier) {
+                Button(role: .destructive) { pendingRemoval = app } label: { Label("Remove", systemImage: "trash") }
+            }
+            if model.isFreeTeam(app.teamIdentifier),
+               !model.hasSavedProfiles(app.CFBundleIdentifier),
+               app.CFBundleIdentifier != Bundle.main.bundleIdentifier {
+                Button { pendingDeactivation = app } label: {
+                    Label("Deactivate (on-device profiles)", systemImage: "pause.circle")
+                }.tint(.orange)
+            }
+        }
+    }
+
+    private var disclaimerSection: some View {
+        Section {
+            Text("Deactivation saves and removes on-device signing profiles and leaves the app and its data installed, as in SideStore's deactivation operation. The app will stop opening until reactivated. Whether iOS releases an active free-team slot must be verified on your device. Purchased/enterprise certificate apps are excluded.")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -540,9 +556,15 @@ struct EmberDeviceAppsView: View {
                     LabeledContent("Application ID", value: app.applicationIdentifier ?? "Unknown")
                     LabeledContent("JIT entitlement", value: app.getTaskAllow == true ? "Enabled" : "Not enabled")
                 }
+                if accounts.account(forTeamID: app.teamIdentifier) == nil {
+                    Section("External certificate") {
+                        Text("This app may have been installed with a purchased signing certificate, including one imported into FlareStore. EmberSign can inspect and back up accessible data, launch it, or remove it through pairing. Re-signing requires the matching .p12 private key, its password, and a valid provisioning profile. These cannot be recovered from the installed app alone.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
                 if let bundleID = app.CFBundleIdentifier, bundleID != Bundle.main.bundleIdentifier {
                     launchControls(bundleID)
-                    Section("App data backup") {
+                    Section {
                         if let saved = model.backups[bundleID] {
                             LabeledContent("Saved", value: saved.createdAt.formatted())
                             LabeledContent("Files", value: "\(saved.files.count)")
@@ -559,19 +581,24 @@ struct EmberDeviceAppsView: View {
                             Task { await model.backUp(app) }
                         } label: { Label("Back up app data", systemImage: "externaldrive.badge.plus") }
                             .disabled(model.isLoading)
+                    } header: {
+                        Text("App data backup")
                     } footer: {
                         Text("Uses paired-device House Arrest access to Documents and Library where iOS permits it. Does not capture app groups, keychain, or files iOS blocks. Backup verification does not guarantee full data portability.")
                     }
                 }
                 if let bundleID = app.CFBundleIdentifier,
                    accounts.account(forTeamID: app.teamIdentifier) != nil,
+                   !model.hasSavedProfiles(bundleID),
                    refresh.trackedApps().contains(where: { $0.id == bundleID }) {
-                    Section("Refresh signing") {
+                    Section {
                         Button {
                             selected = nil
                             Task { _ = await refresh.refresh(bundleID: bundleID) }
                         } label: { Label("Re-sign and reinstall this app", systemImage: "arrow.triangle.2.circlepath") }
                             .disabled(refresh.isRunning)
+                    } header: {
+                        Text("Refresh signing")
                     } footer: {
                         Text("Uses the Apple Account EmberSign linked to this app. Check its current signing identity before refreshing.")
                     }
@@ -585,10 +612,10 @@ struct EmberDeviceAppsView: View {
                             Button {
                                 pendingDeactivation = app
                                 selected = nil
-                            } label: { Label("Suspend profiles (experimental)", systemImage: "pause.circle") }
+                            } label: { Label("Deactivate (on-device profiles)", systemImage: "pause.circle") }
                         }
                     } footer: {
-                        Text("Does not free an app slot. Profile restoration is possible, but this is not an app-data backup.")
+                        Text("This removes installed provisioning profiles without uninstalling. Check your active-app slot availability after deactivation.")
                     }
                 }
                 if !model.hasSavedProfiles(app.CFBundleIdentifier) {

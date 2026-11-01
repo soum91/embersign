@@ -22,6 +22,35 @@ An iOS 16+ app for signing and customizing IPAs on device, managing pairing file
 
 ## Current limits
 
+### Zeus-inspired app management (feature branch)
+
+`feature/zeus-parity-no-containers` experiments with per-app re-sign/reinstall,
+remembered JIT launch preferences, local app-data backup/restore and
+deactivation/reactivation of free-team apps by removing and restoring their
+installed provisioning profiles. It intentionally does not integrate
+zContainer, LiveContainer, or another app-runtime container.
+
+On-device profile suspension leaves an app installed but temporarily prevents
+launches. The exact removed profile bytes are saved in EmberSign before a
+device modification, and reactivation verifies their return. This follows the
+same profile-removal approach used by SideStore, but releasing a free-team
+active-app slot still needs testing on a real iPhone. The operation does not
+delete an App ID from Apple's seven-day developer registration quota.
+
+The separate app-data snapshot tool uses paired-device House Arrest/AFC access
+to copy readable `Documents` and `Library` files, checks per-file SHA-256 hashes,
+and refuses to replace a prior good snapshot with an incomplete copy. Restore
+overwrites only files in the verified snapshot. **It is not a full iOS app
+backup:** keychain records, shared app-group files, and data Apple blocks are
+not included. Close the target app before taking or restoring a snapshot.
+Neither the backup path nor profile suspension has yet been validated on a
+physical iPhone running iOS 27; never uninstall a valued app solely on the
+strength of this snapshot.
+
+The feature branch builds and uploads test artifacts through GitHub Actions,
+but does not update the public FlareStore feed or publish a Release. Its
+controls must be validated before promotion to `main`.
+
 ### Experimental Apple Watch installation
 
 Tools > Apple Watch can now discover a paired Watch through the on-device LocalDevVPN remote-pairing tunnel. With an Apple Account signed in, it attempts to register both devices with Apple, fetch distinct iOS/watchOS development profiles, sign the iPhone host, Watch app, and Watch widgets using Zsign's multi-profile engine, install the iPhone host, and stream the Watch companion directly through the paired iPhone's `companion_proxy` and the Watch's `streaming_zip_conduit`. It also has a separate option to transfer an IPA already correctly signed for the Watch. Both modern `PlugIns/*.app` and legacy `Watch/*.app` layouts are recognized.
