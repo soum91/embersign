@@ -163,6 +163,7 @@ private enum EmberSlotBridge {
 final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyAppsDelegate {
     @Published var apps: [AppInfo] = []
     @Published private(set) var inactive: [EmberInactiveSlot] = EmberSlotStore.load()
+    @Published private(set) var backups: [String: EmberBackupSummary] = [:]
     @Published var isLoading = false
     @Published var status = "Connect LocalDevVPN and import this device's pairing file to scan installed apps."
     private let proxy = InstallationAppProxy()
@@ -192,6 +193,47 @@ final class EmberDeviceAppsModel: NSObject, ObservableObject, InstallationProxyA
             isLoading = false
             status = error.localizedDescription
             EmberErrorCenter.shared.record(error, operation: "Scan installed apps")
+        }
+    }
+
+    func checkBackup(_ bundleID: String) async {
+        let found = await Task.detached(priority: .utility) {
+            EmberAppDataBackup.verifiedBackup(for: bundleID)
+        }.value
+        if let found { backups[bundleID] = found }
+        else { backups.removeValue(forKey: bundleID) }
+    }
+
+    func backUp(_ app: AppInfo) async {
+        guard !isLoading, let identifier = app.CFBundleIdentifier else { return }
+        isLoading = true
+        status = "Backing up (app.displayName). Keep EmberSign open until verification finishes..."
+        defer { isLoading = false }
+        do {
+            let summary = try await Task.detached(priority: .userInitiated) {
+                try EmberAppDataBackup.backup(bundleID: identifier)
+            }.value
+            backups[identifier] = summary
+            status = "Verified \(summary.files.count) data files (\(ByteCountFormatter.string(fromByteCount: summary.bytes, countStyle: .file))) for \(app.displayName). Shared app groups and keychain cannot be included."
+        } catch {
+            status = "Backup failed. App was not modified: " + error.localizedDescription
+            EmberErrorCenter.shared.record(error, operation: "Back up app data")
+        }
+    }
+
+    func restoreData(_ app: AppInfo) async {
+        guard !isLoading, let identifier = app.CFBundleIdentifier else { return }
+        isLoading = true
+        status = "Restoring verified app data to \(app.displayName)..."
+        defer { isLoading = false }
+        do {
+            let summary = try await Task.detached(priority: .userInitiated) {
+                try EmberAppDataBackup.restore(bundleID: identifier)
+            }.value
+            status = "Restored \(summary.files.count) files to \(app.displayName). Reopen the app to check its data."
+        } catch {
+            status = "Restore incomplete: " + error.localizedDescription
+            EmberErrorCenter.shared.record(error, operation: "Restore app data")
         }
     }
 
@@ -357,6 +399,7 @@ struct EmberDeviceAppsView: View {
     @State private var pendingRemoval: AppInfo?
     @State private var pendingDeactivation: AppInfo?
     @State private var pendingReactivation: EmberInactiveSlot?
+    @State private var pendingDataRestore: AppInfo?
 
     var body: some View {
         List {
@@ -464,6 +507,20 @@ struct EmberDeviceAppsView: View {
         } message: {
             Text("Restore the saved provisioning profiles to this iPhone. This cannot restore app data if the app was uninstalled.")
         }
+        .confirmationDialog("Overwrite backed-up files in \(pendingDataRestore?.displayName ?? "app")?", isPresented: Binding(
+            get: { pendingDataRestore != nil },
+            set: { if !$0 { pendingDataRestore = nil } }
+        ), titleVisibility: .visible) {
+            if let app = pendingDataRestore {
+                Button("Restore verified snapshot") {
+                    pendingDataRestore = nil
+                    Task { await model.restoreData(app) }
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingDataRestore = nil }
+        } message: {
+            Text("Restoration replaces files from the snapshot. This cannot recover app-group or keychain data. Keep the current app installed.")
+        }
     }
 
     private func appDetails(_ app: AppInfo) -> some View {
@@ -485,6 +542,26 @@ struct EmberDeviceAppsView: View {
                 }
                 if let bundleID = app.CFBundleIdentifier, bundleID != Bundle.main.bundleIdentifier {
                     launchControls(bundleID)
+                    Section("App data backup") {
+                        if let saved = model.backups[bundleID] {
+                            LabeledContent("Saved", value: saved.createdAt.formatted())
+                            LabeledContent("Files", value: "\(saved.files.count)")
+                            LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: saved.bytes, countStyle: .file))
+                            Button {
+                                selected = nil
+                                pendingDataRestore = app
+                            } label: { Label("Restore data from backup", systemImage: "arrow.uturn.backward") }
+                        } else {
+                            Text("No verified backup recorded").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Button {
+                            selected = nil
+                            Task { await model.backUp(app) }
+                        } label: { Label("Back up app data", systemImage: "externaldrive.badge.plus") }
+                            .disabled(model.isLoading)
+                    } footer: {
+                        Text("Uses paired-device House Arrest access to Documents and Library where iOS permits it. Does not capture app groups, keychain, or files iOS blocks. Backup verification does not guarantee full data portability.")
+                    }
                 }
                 if let bundleID = app.CFBundleIdentifier,
                    accounts.account(forTeamID: app.teamIdentifier) != nil,
@@ -523,6 +600,9 @@ struct EmberDeviceAppsView: View {
                 }
             }
             .navigationTitle(app.displayName)
+            .task {
+                if let identifier = app.CFBundleIdentifier { await model.checkBackup(identifier) }
+            }
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { selected = nil } } }
         }
     }
