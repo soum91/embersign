@@ -168,7 +168,7 @@ private enum EmberRemoteWiFiBridge {
         if let error = lockdownd_connect(provider, &lockdown) { throw failure(error) }
         guard let lockdown else { throw EmberError.message("iPhone 13 Lockdown service unavailable.") }
         defer { lockdownd_client_free(lockdown) }
-        var plist: OpaquePointer?
+        var plist: UnsafeMutableRawPointer?
         if let error = lockdownd_get_value(lockdown, "UniqueDeviceID", nil, &plist) { throw failure(error) }
         guard let plist else { throw EmberError.message("Target device did not return its UDID.") }
         defer { plist_free(plist) }
