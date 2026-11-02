@@ -42,9 +42,7 @@ enum EmberInstallTarget {
     static var targetName: String { isRemote ? "Remote iPhone (Wi-Fi)" : UIDevice.current.name }
 
     static func importRemotePairing(_ source: URL) throws {
-        let accessed = source.startAccessingSecurityScopedResource()
-        defer { if accessed { source.stopAccessingSecurityScopedResource() } }
-        let data = try Data(contentsOf: source)
+        let data = try EmberPairingStore.readImportedData(source)
         let record = try EmberPairingRecord(data: data)
         guard record.kind == .lockdown, let udid = record.udid, !udid.isEmpty else {
             throw EmberError.message("Import a Lockdown pairing file with the iPhone 13's UDID. Remote-pairing files are not supported for this Wi-Fi target.")
@@ -311,7 +309,8 @@ struct EmberInstallTargetView: View {
         }
         .navigationTitle("Install destination")
         .fileImporter(isPresented: $importing,
-                      allowedContentTypes: [.data, .propertyList],
+                      // Device pairing files may have a custom .mobiledevicepairing extension.
+                      allowedContentTypes: [.item],
                       allowsMultipleSelection: false) { outcome in
             do {
                 guard let file = try outcome.get().first else { return }

@@ -11,6 +11,10 @@ enum EmberPairingStore {
     }
 
     static func importFile(_ source: URL) throws {
+        try save(readImportedData(source))
+    }
+
+    static func readImportedData(_ source: URL) throws -> Data {
         let accessing = source.startAccessingSecurityScopedResource()
         defer { if accessing { source.stopAccessingSecurityScopedResource() } }
 
@@ -37,7 +41,7 @@ enum EmberPairingStore {
         guard let importedData else {
             throw EmberError.message("The selected pairing file could not be read. Save it locally in Files and try again.")
         }
-        try save(importedData)
+        return importedData
     }
 
     static func saveGeneratedRemote(_ data: Data) throws {
