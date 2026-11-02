@@ -41,6 +41,27 @@ enum EmberInstallTarget {
 
     static var targetName: String { isRemote ? "Remote iPhone (Wi-Fi)" : UIDevice.current.name }
 
+    // Directly read valid pairing records already copied into On My iPhone > EmberSign.
+    // This avoids file-provider picker issues without removing the native picker.
+    static func localPairingRecords() throws -> [URL] {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let files = try FileManager.default.contentsOfDirectory(
+            at: documents, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )
+        return files.filter { source in
+            guard ["plist", "mobiledevicepairing"].contains(source.pathExtension.lowercased()),
+                  let values = try? source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  (values.fileSize ?? 0) <= 4 * 1024 * 1024,
+                  let data = try? Data(contentsOf: source),
+                  let record = try? EmberPairingRecord(data: data),
+                  record.kind == .lockdown,
+                  record.udid != nil else { return false }
+            return true
+        }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
     static func importRemotePairing(_ source: URL) throws {
         let data = try EmberPairingStore.readImportedData(source)
         let record = try EmberPairingRecord(data: data)
@@ -255,6 +276,8 @@ struct EmberInstallTargetView: View {
     @AppStorage(EmberInstallTarget.modeKey) private var mode = "self"
     @AppStorage(EmberInstallTarget.hostKey) private var host = ""
     @State private var importing = false
+    @State private var localPairingOptions: [URL] = []
+    @State private var showingLocalPairingOptions = false
     @State private var busy = false
     @State private var result = ""
     @State private var importedUDID: String?
@@ -279,6 +302,9 @@ struct EmberInstallTargetView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Button("Import iPhone 13 pairing record") { importing = true }
+                    Button("Import from EmberSign folder (no picker)") { chooseLocalPairing() }
+                    Text("For direct import, save the .plist or .mobiledevicepairing file in Files > On My iPhone > EmberSign.")
+                        .font(.footnote).foregroundStyle(.secondary)
                     if let importedUDID { LabeledContent("Paired UDID", value: "…\(importedUDID.suffix(8))") }
                     Text("Export a Lockdown pairing file for your iPhone 13 using iLoader. Keep its Wi-Fi syncing enabled and the phone awake while installing. Do not import the iPhone 17's pairing file here.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -319,11 +345,41 @@ struct EmberInstallTargetView: View {
                 result = "iPhone 13 pairing imported. Verify the Wi-Fi connection before installing."
             } catch { result = error.localizedDescription }
         }
+        .confirmationDialog("Select a pairing file in EmberSign", isPresented: $showingLocalPairingOptions,
+                            titleVisibility: .visible) {
+            ForEach(localPairingOptions, id: \.absoluteString) { file in
+                Button(file.lastPathComponent) { importLocalPairing(file) }
+            }
+        }
         .onAppear {
             // Opening this screen opts into the paired-device installer.
             // The web fallback remains available in Settings > Installation.
             UserDefaults.standard.set(1, forKey: "Feather.installationMethod")
             importedUDID = (try? EmberPairingRecord(data: Data(contentsOf: EmberInstallTarget.remoteRecordURL)))?.udid
         }
+    }
+
+    private func chooseLocalPairing() {
+        do {
+            let options = try EmberInstallTarget.localPairingRecords()
+            guard !options.isEmpty else {
+                result = "No valid iPhone Lockdown pairing file in On My iPhone > EmberSign. Copy your iPhone 13 pairing .plist here using Files."
+                return
+            }
+            if options.count == 1 {
+                importLocalPairing(options[0])
+            } else {
+                localPairingOptions = options
+                showingLocalPairingOptions = true
+            }
+        } catch { result = error.localizedDescription }
+    }
+
+    private func importLocalPairing(_ source: URL) {
+        do {
+            try EmberInstallTarget.importRemotePairing(source)
+            importedUDID = try EmberInstallTarget.targetUDID()
+            result = "iPhone 13 pairing imported directly from EmberSign folder. Verify the Wi-Fi connection next."
+        } catch { result = error.localizedDescription }
     }
 }
