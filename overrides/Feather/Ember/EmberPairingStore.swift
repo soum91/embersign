@@ -13,9 +13,31 @@ enum EmberPairingStore {
     static func importFile(_ source: URL) throws {
         let accessing = source.startAccessingSecurityScopedResource()
         defer { if accessing { source.stopAccessingSecurityScopedResource() } }
-        let size = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= 4 * 1024 * 1024 else { throw EmberError.message("The pairing file is too large.") }
-        try save(Data(contentsOf: source))
+
+        // Coordinate the read so iCloud Drive and other file providers can materialize
+        // a security-scoped file before its bytes are inspected and stored.
+        let limit = 4 * 1024 * 1024
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordinationError: NSError?
+        var readError: Error?
+        var importedData: Data?
+        coordinator.coordinate(readingItemAt: source, options: [], error: &coordinationError) { readableURL in
+            do {
+                let size = try readableURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard size <= limit else { throw EmberError.message("The pairing file is too large.") }
+                let contents = try Data(contentsOf: readableURL)
+                guard contents.count <= limit else { throw EmberError.message("The pairing file is too large.") }
+                importedData = contents
+            } catch {
+                readError = error
+            }
+        }
+        if let coordinationError { throw coordinationError }
+        if let readError { throw readError }
+        guard let importedData else {
+            throw EmberError.message("The selected pairing file could not be read. Save it locally in Files and try again.")
+        }
+        try save(importedData)
     }
 
     static func saveGeneratedRemote(_ data: Data) throws {

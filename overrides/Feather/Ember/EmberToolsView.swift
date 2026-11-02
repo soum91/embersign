@@ -177,7 +177,8 @@ struct EmberPairingView: View {
             if let message { Section("Result") { Text(message).textSelection(.enabled) } }
         }
         .navigationTitle("Pairing file")
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.data, .propertyList], allowsMultipleSelection: false) { result in
+        // Some file providers assign .mobiledevicepairing a custom type; validate its contents after selection.
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
             do {
                 guard let source = try result.get().first else { return }
                 try EmberPairingStore.importFile(source)
