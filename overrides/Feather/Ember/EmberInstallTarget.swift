@@ -78,12 +78,13 @@ enum EmberInstallTarget {
         try mutable.setResourceValues(values)
     }
 
-    static func remoteSocketAddress() throws -> sockaddr_in {
-        let address = remoteIP.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func remoteSocketAddress(_ overrideIP: String? = nil) throws -> sockaddr_in {
+        let address = (overrideIP ?? remoteIP).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !address.isEmpty, address != "10.7.0.1" else {
             throw EmberError.message("Enter the iPhone 13's own Wi-Fi IPv4 address, not LocalDevVPN's 10.7.0.1 address.")
         }
         var sock = sockaddr_in()
+        sock.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         sock.sin_family = sa_family_t(AF_INET)
         sock.sin_port = CFSwapInt16HostToBig(62078)
         guard inet_pton(AF_INET, address, &sock.sin_addr) == 1 else {
@@ -100,9 +101,7 @@ enum EmberInstallTarget {
 
     static func checkConnection() async throws -> String {
         if isRemote {
-            return try await Task.detached(priority: .userInitiated) {
-                try EmberRemoteWiFiBridge.probe()
-            }.value
+            return try await verifyRemoteAddress(remoteIP)
         }
         let record = try EmberPairingStore.read()
         if #available(iOS 17.4, *) {
@@ -118,6 +117,29 @@ enum EmberInstallTarget {
             throw EmberError.message("LocalDevVPN is not reachable. Start LocalDevVPN on this iPhone and keep Wi-Fi enabled.")
         }
         return "LocalDevVPN tunnel is reachable on this iPhone. Pairing trust is confirmed when the installer connects."
+    }
+
+    /// Native Lockdown calls can block indefinitely. Time out the UI without
+    /// forcibly terminating the in-flight native operation.
+    static func verifyRemoteAddress(_ ip: String, timeoutSeconds: Int = 9) async throws -> String {
+        _ = try targetUDID()
+        _ = try remoteSocketAddress(ip)
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let gate = EmberRemoteProbeGate(continuation)
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    guard EmberRemoteWiFiBridge.isTCPReachable(ip, timeoutMilliseconds: 1500) else {
+                        throw EmberError.message("Cannot reach iPhone wireless sync at \(ip):62078. Check its Wi-Fi IP, wireless syncing, and network isolation.")
+                    }
+                    gate.finish(.success(try EmberRemoteWiFiBridge.probe(at: ip)))
+                } catch {
+                    gate.finish(.failure(error))
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(timeoutSeconds)) {
+                gate.finish(.failure(EmberError.message("The paired iPhone connection timed out after \(timeoutSeconds) seconds. Check its wireless-sync service and Wi-Fi connection.")))
+            }
+        }
     }
 
     static func install(at ipa: URL, viewModel: InstallerStatusViewModel) async throws {
@@ -158,6 +180,27 @@ private enum EmberRemoteWiFiBridge {
         }
     }
 
+    static func isTCPReachable(_ ip: String, timeoutMilliseconds: Int32) -> Bool {
+        guard var address = try? EmberInstallTarget.remoteSocketAddress(ip) else { return false }
+        let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return false }
+        defer { _ = Darwin.close(descriptor) }
+        let flags = Darwin.fcntl(descriptor, F_GETFL, 0)
+        guard flags >= 0, Darwin.fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else { return false }
+        let code = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        if code == 0 { return true }
+        guard errno == EINPROGRESS else { return false }
+        var status = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
+        guard Darwin.poll(&status, 1, timeoutMilliseconds) > 0 else { return false }
+        var socketError: Int32 = 0
+        var length = socklen_t(MemoryLayout<Int32>.size)
+        return Darwin.getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socketError, &length) == 0 && socketError == 0
+    }
+
     private static func failure(_ pointer: UnsafeMutablePointer<IdeviceFfiError>) -> Error {
         let code = pointer.pointee.code
         let message = pointer.pointee.message.map { String(cString: $0) } ?? "Unknown device error"
@@ -165,9 +208,9 @@ private enum EmberRemoteWiFiBridge {
         return EmberError.message("iPhone 13 service error \(code): \(message)")
     }
 
-    private static func withVerifiedProvider<T>(_ action: (OpaquePointer, String) throws -> T) throws -> T {
+    private static func withVerifiedProvider<T>(at ip: String? = nil, _ action: (OpaquePointer, String) throws -> T) throws -> T {
         let expected = try EmberInstallTarget.targetUDID()
-        var address = try EmberInstallTarget.remoteSocketAddress()
+        var address = try EmberInstallTarget.remoteSocketAddress(ip)
         var record: OpaquePointer?
         if let error = idevice_pairing_file_read(EmberInstallTarget.remoteRecordURL.path, &record) {
             throw failure(error)
@@ -202,8 +245,8 @@ private enum EmberRemoteWiFiBridge {
         return try action(provider, actual)
     }
 
-    static func probe() throws -> String {
-        try withVerifiedProvider { _, udid in
+    static func probe(at ip: String) throws -> String {
+        try withVerifiedProvider(at: ip) { _, udid in
             "Verified iPhone on Wi-Fi, UDID ending \(udid.suffix(6)). Remote installation is available."
         }
     }
@@ -272,6 +315,119 @@ private enum EmberRemoteWiFiBridge {
     }
 }
 
+/// Resume a timed-out native probe exactly once, even if the socket later returns.
+private final class EmberRemoteProbeGate {
+    private let lock = NSLock()
+    private var finished = false
+    private let continuation: CheckedContinuation<String, Error>
+
+    init(_ continuation: CheckedContinuation<String, Error>) { self.continuation = continuation }
+
+    func finish(_ outcome: Result<String, Error>) {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true
+        lock.unlock()
+        continuation.resume(with: outcome)
+    }
+}
+
+/// Find Apple wireless-sync services on the current LAN. Never select a
+/// discovered host until its Lockdown UDID matches the imported pairing file.
+private final class EmberRemoteDiscovery: NSObject, ObservableObject, NetServiceBrowserDelegate, NetServiceDelegate {
+    @Published private(set) var isSearching = false
+    @Published private(set) var status = ""
+    private var browser: NetServiceBrowser?
+    private var services: [NetService] = []
+    private var attempted = Set<String>()
+    private var generation = 0
+    private var onMatch: ((String) -> Void)?
+
+    func start(onMatch: @escaping (String) -> Void) {
+        stop()
+        let ticket = generation
+        attempted.removeAll()
+        self.onMatch = onMatch
+        isSearching = true
+        status = "Finding iPhones advertising Apple wireless sync on this network…"
+        let search = NetServiceBrowser()
+        browser = search
+        search.delegate = self
+        search.searchForServices(ofType: "_apple-mobdev2._tcp.", inDomain: "local.")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            guard let self, self.generation == ticket, self.isSearching else { return }
+            self.status = self.attempted.isEmpty
+                ? "No wireless-sync iPhones found. Check Local Network permission, wireless sync and Wi-Fi isolation, or enter the IP manually."
+                : "Found Apple devices, but none verified against the saved iPhone 13 pairing record."
+            self.stopBrowsing()
+        }
+    }
+
+    func stop() {
+        generation += 1
+        stopBrowsing()
+        onMatch = nil
+    }
+
+    private func stopBrowsing() {
+        browser?.stop()
+        browser?.delegate = nil
+        browser = nil
+        for service in services {
+            service.stop()
+            service.delegate = nil
+        }
+        services.removeAll()
+        isSearching = false
+    }
+
+    func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
+        services.append(service)
+        service.delegate = self
+        service.resolve(withTimeout: 5)
+    }
+
+    func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
+        status = "Discovery could not start. Check Settings > EmberSign > Local Network, or enter the IP manually."
+        stopBrowsing()
+    }
+
+    func netServiceDidResolveAddress(_ sender: NetService) {
+        for data in sender.addresses ?? [] {
+            guard let ip = Self.ipv4(from: data), attempted.insert(ip).inserted else { continue }
+            let ticket = generation
+            status = "Checking trusted pairing at \(ip)…"
+            Task {
+                do {
+                    let verification = try await EmberInstallTarget.verifyRemoteAddress(ip, timeoutSeconds: 7)
+                    await MainActor.run {
+                        guard self.generation == ticket, self.isSearching else { return }
+                        self.onMatch?(ip)
+                        self.status = "Detected \(ip). \(verification)"
+                        self.stopBrowsing()
+                    }
+                } catch {
+                    await MainActor.run {
+                        guard self.generation == ticket, self.isSearching else { return }
+                        self.status = "Device at \(ip) did not verify; searching for your paired iPhone…"
+                    }
+                }
+            }
+        }
+    }
+
+    private static func ipv4(from data: Data) -> String? {
+        guard data.count >= MemoryLayout<sockaddr_in>.size else { return nil }
+        var address = sockaddr_in()
+        _ = withUnsafeMutableBytes(of: &address) { data.copyBytes(to: $0) }
+        guard address.sin_family == sa_family_t(AF_INET) else { return nil }
+        var ipAddress = address.sin_addr
+        var output = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        guard inet_ntop(AF_INET, &ipAddress, &output, socklen_t(INET_ADDRSTRLEN)) != nil else { return nil }
+        return String(cString: output)
+    }
+}
+
 struct EmberInstallTargetView: View {
     @AppStorage(EmberInstallTarget.modeKey) private var mode = "self"
     @AppStorage(EmberInstallTarget.hostKey) private var host = ""
@@ -281,6 +437,7 @@ struct EmberInstallTargetView: View {
     @State private var busy = false
     @State private var result = ""
     @State private var importedUDID: String?
+    @StateObject private var discovery = EmberRemoteDiscovery()
 
     var body: some View {
         Form {
@@ -297,10 +454,26 @@ struct EmberInstallTargetView: View {
             }
             if mode == "remote" {
                 Section("iPhone 13 Pro Max") {
-                    TextField("iPhone 13 Wi-Fi IPv4 address", text: $host)
+                    TextField("iPhone 13 Wi-Fi IPv4 address (manual fallback)", text: $host)
                         .keyboardType(.decimalPad)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    Button {
+                        startDiscovery()
+                    } label: {
+                        HStack {
+                            Label("Auto-detect paired iPhone", systemImage: "wifi")
+                            Spacer()
+                            if discovery.isSearching { ProgressView() }
+                        }
+                    }
+                    .disabled(importedUDID == nil || discovery.isSearching)
+                    if !discovery.status.isEmpty {
+                        Text(discovery.status)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                     Button("Import iPhone 13 pairing record") { importing = true }
                     Button("Import from EmberSign folder (no picker)") { chooseLocalPairing() }
                     Text("For direct import, save the .plist or .mobiledevicepairing file in Files > On My iPhone > EmberSign.")
@@ -318,6 +491,7 @@ struct EmberInstallTargetView: View {
             }
             Section("Connection") {
                 Button {
+                    discovery.stop()
                     busy = true
                     Task {
                         do { result = try await EmberInstallTarget.checkConnection() }
@@ -342,7 +516,8 @@ struct EmberInstallTargetView: View {
                 guard let file = try outcome.get().first else { return }
                 try EmberInstallTarget.importRemotePairing(file)
                 importedUDID = try EmberInstallTarget.targetUDID()
-                result = "iPhone 13 pairing imported. Verify the Wi-Fi connection before installing."
+                result = "iPhone 13 pairing imported. Looking for it on local Wi-Fi…"
+                startDiscovery()
             } catch { result = error.localizedDescription }
         }
         .confirmationDialog("Select a pairing file in EmberSign", isPresented: $showingLocalPairingOptions,
@@ -356,6 +531,27 @@ struct EmberInstallTargetView: View {
             // The web fallback remains available in Settings > Installation.
             UserDefaults.standard.set(1, forKey: "Feather.installationMethod")
             importedUDID = (try? EmberPairingRecord(data: Data(contentsOf: EmberInstallTarget.remoteRecordURL)))?.udid
+            if mode == "remote" && importedUDID != nil { startDiscovery() }
+        }
+        .onChange(of: mode) { newMode in
+            if newMode == "remote" && importedUDID != nil {
+                startDiscovery()
+            } else {
+                discovery.stop()
+            }
+        }
+        .onDisappear { discovery.stop() }
+    }
+
+    private func startDiscovery() {
+        guard mode == "remote" else { return }
+        guard importedUDID != nil else {
+            result = "Import the iPhone 13 Lockdown pairing record before auto-detection."
+            return
+        }
+        discovery.start { address in
+            host = address
+            result = "Paired iPhone 13 found at \(address). You can now install over local Wi-Fi."
         }
     }
 
@@ -379,7 +575,8 @@ struct EmberInstallTargetView: View {
         do {
             try EmberInstallTarget.importRemotePairing(source)
             importedUDID = try EmberInstallTarget.targetUDID()
-            result = "iPhone 13 pairing imported directly from EmberSign folder. Verify the Wi-Fi connection next."
+            result = "iPhone 13 pairing imported from EmberSign folder. Looking for it on Wi-Fi…"
+            startDiscovery()
         } catch { result = error.localizedDescription }
     }
 }
