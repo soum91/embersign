@@ -86,7 +86,7 @@ def main() -> None:
     parser.add_argument("--version")
     parser.add_argument("--build")
     parser.add_argument("--size", type=int)
-    parser.add_argument("--date", default=datetime.now(timezone.utc).date().isoformat())
+    parser.add_argument("--date", default=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"))
     args = parser.parse_args()
 
     if args.version is not None or args.build is not None or args.size is not None:
