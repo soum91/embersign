@@ -34,7 +34,11 @@ def update_feed(feed: dict, metadata: dict, repository: str, release_date: str) 
     app = apps[0]
     # FlareStore compares user-visible versions. Using a fixed marketing
     # version masks updates even when buildVersion increases. Match the IPA.
-    version = f"{release_version}.{build}"
+    parts = release_version.split(".")
+    if len(parts) != 3 or not all(piece.isdecimal() for piece in parts):
+        raise ValueError("Expected three numeric release components")
+    # Three sortable components in feed and IPA: MAJOR.MINOR.BUILD.
+    version = f"{parts[0]}.{parts[1]}.{build}"
     download = f"https://github.com/{repository}/releases/download/v{release_version}-build.{build}/EmberSign.ipa"
     notes = (
         f"EmberSign {release_version} build {build}: Apple Accounts, signing and provisioning, "

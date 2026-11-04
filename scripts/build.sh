@@ -25,7 +25,7 @@ test -d "$TASK_APP"
 mkdir -p "$TASK_ROOT/build/Payload"
 cp -R "$TASK_APP" "$TASK_ROOT/build/Payload/EmberSign.app"
 cp deps/* "$TASK_ROOT/build/Payload/EmberSign.app/"
-TASK_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$TASK_ROOT/upstream.lock.json").$TASK_BUILD"
+TASK_VERSION="$(python3 -c 'import json,sys; p=json.load(open(sys.argv[1]))["version"].split("."); assert len(p)==3 and all(x.isdecimal() for x in p); print(".".join((p[0],p[1],sys.argv[2])))' "$TASK_ROOT/upstream.lock.json" "$TASK_BUILD")"
 for TASK_BUNDLE in "$TASK_ROOT/build/Payload/EmberSign.app" "$TASK_ROOT/build/Payload/EmberSign.app/PlugIns/EmberSignWidget.appex"; do
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $TASK_BUILD" "$TASK_BUNDLE/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $TASK_VERSION" "$TASK_BUNDLE/Info.plist"
