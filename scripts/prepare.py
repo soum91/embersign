@@ -207,6 +207,9 @@ private enum EmberGitHubSource {
                     NavigationLink { EmberAccountsView() } label: {
                         Label("Apple Accounts", systemImage: "person.crop.circle.badge.checkmark")
                     }
+                    NavigationLink { EmberInstallTargetView() } label: {
+                        Label("Remote iPhone (Wi-Fi)", systemImage: "iphone.gen3.radiowaves.left.and.right")
+                    }
                     NavigationLink { EmberDeviceAppsView() } label: {
                         Label("Installed apps", systemImage: "square.grid.2x2")
                     }

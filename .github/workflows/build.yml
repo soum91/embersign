@@ -31,6 +31,9 @@ jobs:
         run: python3 -m unittest discover -s Tests -p 'test_source_feed.py'
       - name: Fetch pinned signing engine and apply EmberSign source
         run: bash scripts/bootstrap.sh
+      - name: Verify the Remote iPhone tool is in the generated app
+        run: |
+          python3 -c 'from pathlib import Path; t=Path("upstream/Feather/Ember/EmberToolsView.swift").read_text(); assert "Remote iPhone (Wi-Fi)" in t and "EmberInstallTargetView()" in t'
       - name: Install Rust target for on-device pairing
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -42,7 +45,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: build/DerivedData
-          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'pairing-native/**', 'jit-integration/**') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'overrides/**', 'scripts/prepare.py', 'pairing-native/**', 'jit-integration/**') }}
       - name: Build and package IPA
         run: bash scripts/build.sh
       - name: Preserve compiled dependencies
@@ -51,7 +54,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: build/DerivedData
-          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'pairing-native/**', 'jit-integration/**') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'overrides/**', 'scripts/prepare.py', 'pairing-native/**', 'jit-integration/**') }}
       - name: Prepare FlareStore feed for the packaged IPA
         run: python3 scripts/update_source.py
       - name: Bundle complete source with licenses

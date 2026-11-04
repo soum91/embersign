@@ -32,7 +32,9 @@ def update_feed(feed: dict, metadata: dict, repository: str, release_date: str) 
     if len(apps) != 1:
         raise ValueError(f"Expected one feed app for {bundle_id}, found {len(apps)}")
     app = apps[0]
-    version = release_version
+    # FlareStore compares user-visible versions. Using a fixed marketing
+    # version masks updates even when buildVersion increases. Match the IPA.
+    version = f"{release_version}.{build}"
     download = f"https://github.com/{repository}/releases/download/v{release_version}-build.{build}/EmberSign.ipa"
     notes = (
         f"EmberSign {release_version} build {build}: Apple Accounts, signing and provisioning, "
@@ -48,15 +50,8 @@ def update_feed(feed: dict, metadata: dict, repository: str, release_date: str) 
         "size": size,
         "minOSVersion": "16.0",
     }
-    def normalize_previous(item: dict) -> dict:
-        fixed = dict(item)
-        suffix = "." + str(fixed.get("buildVersion", ""))
-        old_version = str(fixed.get("version", ""))
-        if suffix != "." and old_version.endswith(suffix):
-            fixed["version"] = old_version[:-len(suffix)]
-        return fixed
     other_versions = [
-        normalize_previous(item)
+        item
         for item in app.get("versions", [])
         if str(item.get("buildVersion")) != build
     ]

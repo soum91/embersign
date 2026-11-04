@@ -17,6 +17,8 @@ struct EmberToolsView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text("EmberSign").font(.title2.bold())
                             Text("Sign. Customize. Run.").foregroundStyle(.secondary)
+                            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
+                                .font(.caption2).foregroundStyle(.secondary)
                         }
                     }.padding(.vertical, 10)
                 }
@@ -37,7 +39,11 @@ struct EmberToolsView: View {
                 }
                 Section("Device tools") {
                     NavigationLink { EmberInstallTargetView() } label: {
-                        Label("Install destination", systemImage: "iphone.and.arrow.forward")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Remote iPhone (Wi-Fi)", systemImage: "iphone.gen3.radiowaves.left.and.right")
+                            Text("Auto-detect paired iPhones or enter an IP address")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     NavigationLink { EmberWatchSupportView() } label: {
                         Label("Apple Watch", systemImage: "applewatch")

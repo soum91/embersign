@@ -32,10 +32,10 @@ class SourceFeedTests(unittest.TestCase):
         result = update_feed(copy.deepcopy(self.feed), self.metadata, "soum91/embersign", "2026-10-25")
         app = result["apps"][0]
         self.assertEqual(app["versions"][0]["buildVersion"], self.next_build)
-        self.assertEqual(app["version"], "0.2.1")
+        self.assertEqual(app["version"], f"0.2.1.{self.next_build}")
         self.assertEqual(app["buildVersion"], self.next_build)
         self.assertEqual(app["size"], 19000123)
-        self.assertEqual(app["versions"][0]["version"], "0.2.1")
+        self.assertEqual(app["versions"][0]["version"], f"0.2.1.{self.next_build}")
         self.assertTrue(app["downloadURL"].endswith(f"/v0.2.1-build.{self.next_build}/EmberSign.ipa"))
         self.assertTrue(any(version["buildVersion"] == "4" for version in app["versions"]))
         self.assertIn("Apple Account", app["localizedDescription"])
@@ -50,6 +50,15 @@ class SourceFeedTests(unittest.TestCase):
         metadata = dict(self.metadata, bundle_identifier="other.app")
         with self.assertRaises(ValueError):
             update_feed(copy.deepcopy(self.feed), metadata, "soum91/embersign", "2026-10-25")
+
+    def test_remote_iphone_navigation_is_present(self):
+        tools = (ROOT / "overrides/Feather/Ember/EmberToolsView.swift").read_text()
+        prepare = (ROOT / "scripts/prepare.py").read_text()
+        destination = (ROOT / "overrides/Feather/Ember/EmberInstallTarget.swift").read_text()
+        self.assertIn('Label("Remote iPhone (Wi-Fi)"', tools)
+        self.assertIn('NavigationLink { EmberInstallTargetView() }', tools)
+        self.assertIn('Label("Remote iPhone (Wi-Fi)"', prepare)
+        self.assertIn('Auto-detect paired iPhone', destination)
 
 
 if __name__ == "__main__":
