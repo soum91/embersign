@@ -144,6 +144,11 @@ enum EmberInstallTarget {
 
     static func install(at ipa: URL, viewModel: InstallerStatusViewModel) async throws {
         if isRemote {
+            // If this iPhone auto-locks or the app is backgrounded mid-upload,
+            // iOS suspends it and the iPhone 13 drops the stalled TLS socket
+            // (UnexpectedEof). Hold the screen on and request background time.
+            let keepAlive = await EmberInstallKeepAlive.begin()
+            defer { Task { @MainActor in keepAlive.end() } }
             try await EmberRemoteWiFiBridge.install(ipa: ipa, viewModel: viewModel)
         } else {
             _ = try await checkConnection()
@@ -293,20 +298,37 @@ private enum EmberRemoteWiFiBridge {
             let installPath = "PublicStaging/\(name)"
             let total = (try FileManager.default.attributesOfItem(atPath: ipa.path)[.size] as? NSNumber)?.uint64Value ?? 0
             guard total > 0 else { throw EmberError.message("The signed IPA is empty or cannot be read.") }
+            // Wireless Lockdown requires the host to answer heartbeat Marco
+            // with Polo. Without it the iPhone tears down every connection from
+            // this host after a few intervals, which surfaces mid-upload as
+            // "peer closed connection without sending TLS close_notify".
+            // Feather's own installer runs HeartbeatManager for exactly this
+            // reason; the remote bridge never did.
+            let heartbeat = EmberRemoteHeartbeat()
+            try heartbeat.start()
             // Cleanup can require another Lockdown handshake. Never block a
             // completed install while the phone is going to sleep.
             defer {
                 DispatchQueue.global(qos: .utility).async {
                     removeStagedIPA(at: afcPath)
+                    heartbeat.stop()
                 }
             }
             // AFC can lose its TLS session during large Wi-Fi uploads. Resume
             // from the size reported by the iPhone instead of retransmitting
             // the entire IPA on every disconnect. This path never resends an
             // installation command, only the not-yet-installed payload.
+            // Retry for as long as each reconnect makes forward progress. Only
+            // give up after repeated reconnects that add zero bytes.
             let maxTransferAttempts = 4
-            for attempt in 1...maxTransferAttempts {
+            let maxReconnects = 40
+            var stalledAttempts = 0
+            var lastRemoteSize: UInt64 = 0
+            for attempt in 1...maxReconnects {
+                var reachedSize: UInt64 = 0
                 do {
+                    // A dropped connection may have taken the heartbeat with it.
+                    if !heartbeat.isAlive { try heartbeat.start() }
                     try withVerifiedProvider { provider, _ in
                 var afc: OpaquePointer?
                 if let error = afc_client_connect(provider, &afc) { throw failure(error) }
@@ -335,12 +357,13 @@ private enum EmberRemoteWiFiBridge {
                 defer { try? source.close() }
                 try source.seek(toOffset: UInt64(remoteOffset))
                 var sent = UInt64(remoteOffset)
+                reachedSize = sent
                 awaitStatus(viewModel, .sendingPayload)
                 let resumedProgress = Double(sent) / Double(total)
                 Task { @MainActor in viewModel.uploadProgress = resumedProgress }
                 // Smaller AFC packets avoid huge TLS writes on older wireless-
                 // sync services. Reduce size further after repeated failures.
-                let chunkSize = attempt <= 2 ? 65_536 : 16_384
+                let chunkSize = stalledAttempts == 0 && attempt <= 2 ? 65_536 : 16_384
                 while let chunk = try source.read(upToCount: chunkSize), !chunk.isEmpty {
                     let writeError = chunk.withUnsafeBytes { raw -> UnsafeMutablePointer<IdeviceFfiError>? in
                         afc_file_write(handle, raw.bindMemory(to: UInt8.self).baseAddress, chunk.count)
@@ -349,6 +372,7 @@ private enum EmberRemoteWiFiBridge {
                         throw failure(writeError)
                     }
                     sent += UInt64(chunk.count)
+                    reachedSize = sent
                     let progress = Double(sent) / Double(total)
                     Task { @MainActor in viewModel.uploadProgress = progress }
                 }
@@ -365,15 +389,23 @@ private enum EmberRemoteWiFiBridge {
                     }
                     break
                 } catch {
-                    guard attempt < maxTransferAttempts && isRecoverableConnectionFailure(error) else {
+                    // Each confirmed write is on the iPhone already; resume
+                    // re-reads the true remote size, so this is only a counter.
+                    if reachedSize > lastRemoteSize {
+                        lastRemoteSize = reachedSize
+                        stalledAttempts = 0
+                    } else {
+                        stalledAttempts += 1
+                    }
+                    guard attempt < maxReconnects && stalledAttempts < maxTransferAttempts && isRecoverableConnectionFailure(error) else {
                         if isRecoverableConnectionFailure(error) {
-                            throw EmberError.message("The iPhone 13 disconnected during IPA staging after \(maxTransferAttempts) attempts. Keep it awake and wireless syncing enabled, then retry on the same trusted Wi-Fi. Last error: \(error.localizedDescription)")
+                            throw EmberError.message("The iPhone 13 disconnected during IPA staging after \(maxTransferAttempts) reconnects with no progress (\(lastRemoteSize) of \(total) bytes staged). Keep it awake and wireless syncing enabled, then retry on the same trusted Wi-Fi. Last error: \(error.localizedDescription)")
                         }
                         throw EmberError.message("iPhone 13 AFC transfer failed: \(error.localizedDescription)")
                     }
                     // Give wireless Lockdown time to tear down the broken TLS
                     // session before creating a fresh authenticated provider.
-                    let pause: UInt64 = attempt == 1 ? 500_000_000 : attempt == 2 ? 1_250_000_000 : 2_500_000_000
+                    let pause: UInt64 = stalledAttempts <= 1 ? 500_000_000 : stalledAttempts == 2 ? 1_250_000_000 : 2_500_000_000
                     try await Task.sleep(nanoseconds: pause)
                 }
             }
@@ -383,6 +415,7 @@ private enum EmberRemoteWiFiBridge {
             for attempt in 1...2 {
                 var requestStarted = false
                 do {
+                    if !heartbeat.isAlive { try heartbeat.start() }
                     try withVerifiedProvider { provider, _ in
                 var proxy: OpaquePointer?
                 if let error = installation_proxy_connect(provider, &proxy) { throw failure(error) }
@@ -416,6 +449,17 @@ private enum EmberRemoteWiFiBridge {
         }.value
     }
 
+    /// Opens com.apple.mobile.heartbeat on the verified iPhone and returns the
+    /// owned client. The provider is only needed for the connect itself.
+    static func connectHeartbeat() throws -> OpaquePointer {
+        try withVerifiedProvider { provider, _ in
+            var client: OpaquePointer?
+            if let error = heartbeat_connect(provider, &client) { throw failure(error) }
+            guard let client else { throw EmberError.message("iPhone 13 heartbeat service is unavailable.") }
+            return client
+        }
+    }
+
     private static func removeStagedIPA(at path: String) {
         // Keep the remote AFC directory tidy, but never convert a successful
         // installation into a failure merely because cleanup lost Wi-Fi.
@@ -440,6 +484,85 @@ private enum EmberRemoteWiFiBridge {
 
     private static func awaitStatus(_ model: InstallerStatusViewModel, _ status: InstallerStatusViewModel.InstallerStatus) {
         Task { @MainActor in model.status = status }
+    }
+}
+
+/// Answers the remote iPhone's heartbeat Marco/Polo for the length of an install,
+/// mirroring Feather's HeartbeatManager loop but against the Wi-Fi target.
+private final class EmberRemoteHeartbeat: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generation = 0
+    private var running = false
+
+    var isAlive: Bool { lock.lock(); defer { lock.unlock() }; return running }
+
+    func start() throws {
+        let client = try EmberRemoteWiFiBridge.connectHeartbeat()
+        lock.lock()
+        generation += 1
+        let ticket = generation
+        running = true
+        lock.unlock()
+        let thread = Thread { [weak self] in self?.loop(client, ticket: ticket) }
+        thread.name = "embersign-remote-heartbeat"
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+
+    func stop() {
+        lock.lock()
+        generation += 1
+        running = false
+        lock.unlock()
+    }
+
+    private func loop(_ client: OpaquePointer, ticket: Int) {
+        defer {
+            heartbeat_client_free(client)
+            lock.lock()
+            if generation == ticket { running = false }
+            lock.unlock()
+        }
+        var interval: UInt64 = 15
+        while true {
+            lock.lock(); let current = generation == ticket; lock.unlock()
+            guard current else { return }
+            var next: UInt64 = 0
+            if let error = heartbeat_get_marco(client, interval, &next) {
+                idevice_error_free(error)
+                return
+            }
+            interval = next + 5
+            if let error = heartbeat_send_polo(client) {
+                idevice_error_free(error)
+                return
+            }
+        }
+    }
+}
+
+/// Keeps the signing iPhone awake and running while it streams to the remote iPhone.
+@MainActor
+private final class EmberInstallKeepAlive {
+    private var task: UIBackgroundTaskIdentifier = .invalid
+    private let previousIdle: Bool
+
+    private init() {
+        previousIdle = UIApplication.shared.isIdleTimerDisabled
+        UIApplication.shared.isIdleTimerDisabled = true
+        task = UIApplication.shared.beginBackgroundTask(withName: "EmberSign remote install") { [weak self] in
+            self?.end()
+        }
+    }
+
+    static func begin() -> EmberInstallKeepAlive { EmberInstallKeepAlive() }
+
+    func end() {
+        UIApplication.shared.isIdleTimerDisabled = previousIdle
+        if task != .invalid {
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
     }
 }
 
