@@ -144,6 +144,11 @@ enum EmberInstallTarget {
 
     static func install(at ipa: URL, viewModel: InstallerStatusViewModel) async throws {
         if isRemote {
+            // If this iPhone auto-locks or the app is backgrounded mid-upload,
+            // iOS suspends it and the iPhone 13 drops the stalled TLS socket
+            // (UnexpectedEof). Hold the screen on and request background time.
+            let keepAlive = await EmberInstallKeepAlive.begin()
+            defer { Task { @MainActor in keepAlive.end() } }
             try await EmberRemoteWiFiBridge.install(ipa: ipa, viewModel: viewModel)
         } else {
             _ = try await checkConnection()
@@ -304,8 +309,14 @@ private enum EmberRemoteWiFiBridge {
             // from the size reported by the iPhone instead of retransmitting
             // the entire IPA on every disconnect. This path never resends an
             // installation command, only the not-yet-installed payload.
+            // Retry for as long as each reconnect makes forward progress. Only
+            // give up after repeated reconnects that add zero bytes.
             let maxTransferAttempts = 4
-            for attempt in 1...maxTransferAttempts {
+            let maxReconnects = 40
+            var stalledAttempts = 0
+            var lastRemoteSize: UInt64 = 0
+            for attempt in 1...maxReconnects {
+                var reachedSize: UInt64 = 0
                 do {
                     try withVerifiedProvider { provider, _ in
                 var afc: OpaquePointer?
@@ -335,12 +346,13 @@ private enum EmberRemoteWiFiBridge {
                 defer { try? source.close() }
                 try source.seek(toOffset: UInt64(remoteOffset))
                 var sent = UInt64(remoteOffset)
+                reachedSize = sent
                 awaitStatus(viewModel, .sendingPayload)
                 let resumedProgress = Double(sent) / Double(total)
                 Task { @MainActor in viewModel.uploadProgress = resumedProgress }
                 // Smaller AFC packets avoid huge TLS writes on older wireless-
                 // sync services. Reduce size further after repeated failures.
-                let chunkSize = attempt <= 2 ? 65_536 : 16_384
+                let chunkSize = stalledAttempts == 0 && attempt <= 2 ? 65_536 : 16_384
                 while let chunk = try source.read(upToCount: chunkSize), !chunk.isEmpty {
                     let writeError = chunk.withUnsafeBytes { raw -> UnsafeMutablePointer<IdeviceFfiError>? in
                         afc_file_write(handle, raw.bindMemory(to: UInt8.self).baseAddress, chunk.count)
@@ -349,6 +361,7 @@ private enum EmberRemoteWiFiBridge {
                         throw failure(writeError)
                     }
                     sent += UInt64(chunk.count)
+                    reachedSize = sent
                     let progress = Double(sent) / Double(total)
                     Task { @MainActor in viewModel.uploadProgress = progress }
                 }
@@ -365,15 +378,23 @@ private enum EmberRemoteWiFiBridge {
                     }
                     break
                 } catch {
-                    guard attempt < maxTransferAttempts && isRecoverableConnectionFailure(error) else {
+                    // Each confirmed write is on the iPhone already; resume
+                    // re-reads the true remote size, so this is only a counter.
+                    if reachedSize > lastRemoteSize {
+                        lastRemoteSize = reachedSize
+                        stalledAttempts = 0
+                    } else {
+                        stalledAttempts += 1
+                    }
+                    guard attempt < maxReconnects && stalledAttempts < maxTransferAttempts && isRecoverableConnectionFailure(error) else {
                         if isRecoverableConnectionFailure(error) {
-                            throw EmberError.message("The iPhone 13 disconnected during IPA staging after \(maxTransferAttempts) attempts. Keep it awake and wireless syncing enabled, then retry on the same trusted Wi-Fi. Last error: \(error.localizedDescription)")
+                            throw EmberError.message("The iPhone 13 disconnected during IPA staging after \(maxTransferAttempts) reconnects with no progress (\(lastRemoteSize) of \(total) bytes staged). Keep it awake and wireless syncing enabled, then retry on the same trusted Wi-Fi. Last error: \(error.localizedDescription)")
                         }
                         throw EmberError.message("iPhone 13 AFC transfer failed: \(error.localizedDescription)")
                     }
                     // Give wireless Lockdown time to tear down the broken TLS
                     // session before creating a fresh authenticated provider.
-                    let pause: UInt64 = attempt == 1 ? 500_000_000 : attempt == 2 ? 1_250_000_000 : 2_500_000_000
+                    let pause: UInt64 = stalledAttempts <= 1 ? 500_000_000 : stalledAttempts == 2 ? 1_250_000_000 : 2_500_000_000
                     try await Task.sleep(nanoseconds: pause)
                 }
             }
@@ -440,6 +461,31 @@ private enum EmberRemoteWiFiBridge {
 
     private static func awaitStatus(_ model: InstallerStatusViewModel, _ status: InstallerStatusViewModel.InstallerStatus) {
         Task { @MainActor in model.status = status }
+    }
+}
+
+/// Keeps the signing iPhone awake and running while it streams to the remote iPhone.
+@MainActor
+private final class EmberInstallKeepAlive {
+    private var task: UIBackgroundTaskIdentifier = .invalid
+    private let previousIdle: Bool
+
+    private init() {
+        previousIdle = UIApplication.shared.isIdleTimerDisabled
+        UIApplication.shared.isIdleTimerDisabled = true
+        task = UIApplication.shared.beginBackgroundTask(withName: "EmberSign remote install") { [weak self] in
+            self?.end()
+        }
+    }
+
+    static func begin() -> EmberInstallKeepAlive { EmberInstallKeepAlive() }
+
+    func end() {
+        UIApplication.shared.isIdleTimerDisabled = previousIdle
+        if task != .invalid {
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
     }
 }
 

@@ -21,9 +21,16 @@ class RemoteTLSAndProvisioningTests(unittest.TestCase):
         self.assertIn('source.read(upToCount: chunkSize)', self.install)
         self.assertIn('attempt <= 2 ? 65_536 : 16_384', self.install)
 
+    def test_sender_stays_awake_during_remote_install(self):
+        self.assertIn('EmberInstallKeepAlive.begin()', self.install)
+        self.assertIn('isIdleTimerDisabled = true', self.install)
+        self.assertIn('beginBackgroundTask', self.install)
+
     def test_resumes_staging_without_truncating_previous_upload(self):
         self.assertIn('let maxTransferAttempts = 4', self.install)
-        self.assertIn('for attempt in 1...maxTransferAttempts', self.install)
+        self.assertIn('for attempt in 1...maxReconnects', self.install)
+        self.assertIn('stalledAttempts < maxTransferAttempts', self.install)
+        self.assertIn('if reachedSize > lastRemoteSize', self.install)
         self.assertIn('attempt == 1 ? AfcWrOnly : AfcRw', self.install)
         self.assertIn('if attempt == 1, let error = afc_remove_path', self.install)
         self.assertIn('afc_file_seek(handle, 0, SEEK_END, &remoteOffset)', self.install)
