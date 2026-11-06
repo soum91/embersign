@@ -57,6 +57,15 @@ jobs:
         with:
           path: build/DerivedData
           key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'overrides/**', 'scripts/prepare.py', 'pairing-native/**', 'jit-integration/**') }}
+      - name: Name IPA with build number
+        run: |
+          N=${{ github.run_number }}
+          cp packages/EmberSign.ipa "packages/EmberSign-build-$N.ipa"
+          (cd packages && shasum -a 256 "EmberSign-build-$N.ipa" > "EmberSign-build-$N.ipa.sha256")
+      - name: Write changelog since the previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release_changelog.py
       - name: Prepare FlareStore feed for the packaged IPA
         run: python3 scripts/update_source.py
       - name: Bundle complete source with licenses
@@ -87,29 +96,10 @@ jobs:
           name: EmberSign 0.2.1 build ${{ github.run_number }}
           make_latest: true
           fail_on_unmatched_files: true
-          body: |
-            EmberSign 0.2.1 development build for iOS 16 and later.
-
-            New: Experimental on-device Apple Watch installation under Tools.
-            Discovers the paired Watch, requests distinct iPhone/watchOS development
-            profiles, signs nested Watch apps and widgets, installs the iPhone host,
-            and streams the Watch app through the companion proxy to watchOS.
-            New Watch refresh tracking saves the last successful unsigned IPA and
-            its provisioning expiry, offers a manual renew button, best-effort
-            background renewal, and one-tap GitHub feed download and Watch update.
-            The on-device Watch path still needs real iOS 27/watchOS 27 testing;
-            Apple's platform registration and service authorization may reject it.
-
-            Adds multiple Apple Account sessions, 2FA, on-device free/paid development provisioning, account/team quotas, certificate/App ID/profile management, paired-device app inventory, uninstall and portal cleanup, automatic re-sign/reinstall attempts, and error-code diagnostics with online issue lookup.
-
-            Also includes imported-certificate signing, IPA installation/export, tweak injection, pairing-file import/export, experimental iOS 27 remote pairing, JIT entitlement preparation, built-in StikJIT activation and StikDebug/SideJITServer fallbacks.
-
-            Re-sign EmberSign.ipa using your current signing tool before installation. Apple Account features depend on Apple developer services and Anisette. Background refresh is best-effort and requires a reachable pairing tunnel. On-device pairing requires iOS 27 and approval in Developer Mode; its support is experimental and device testing is pending. Built-in JIT uses StikJIT and still requires a valid remote pairing record, LocalDevVPN, compatible iOS/device, a development-signed target, and on iOS 26+ an app-compatible JIT memory protocol. It needs real-device verification.
-
-            Complete engine source and original licenses are included in EmberSign-Source.tar.gz. Runtime behavior still needs device testing.
+          body_path: packages/RELEASE_NOTES.md
           files: |
-            packages/EmberSign.ipa
-            packages/EmberSign.ipa.sha256
+            packages/EmberSign-build-${{ github.run_number }}.ipa
+            packages/EmberSign-build-${{ github.run_number }}.ipa.sha256
             packages/build-info.json
             packages/EmberSign-Source.tar.gz
       - name: Update FlareStore feed after successful release

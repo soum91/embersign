@@ -39,12 +39,17 @@ def update_feed(feed: dict, metadata: dict, repository: str, release_date: str) 
         raise ValueError("Expected three numeric release components")
     # Three sortable components in feed and IPA: MAJOR.MINOR.BUILD.
     version = f"{parts[0]}.{parts[1]}.{build}"
-    download = f"https://github.com/{repository}/releases/download/v{release_version}-build.{build}/EmberSign.ipa"
+    download = f"https://github.com/{repository}/releases/download/v{release_version}-build.{build}/EmberSign-build-{build}.ipa"
     notes = (
         f"EmberSign {release_version} build {build}: Apple Accounts, signing and provisioning, "
         "paired-device app inventory, quota estimates, refresh controls, JIT tools, "
         "experimental Watch installation and refresh, GitHub Watch updates, and diagnostics."
     )
+    changes_file = ROOT / "packages/CHANGES.txt"
+    if changes_file.exists():
+        changes = [line.strip() for line in changes_file.read_text().splitlines() if line.strip()]
+        if changes:
+            notes = f"EmberSign {release_version} build {build}. Changes: " + "; ".join(changes) + "."
     entry = {
         "version": version,
         "buildVersion": build,

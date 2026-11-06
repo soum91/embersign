@@ -36,7 +36,7 @@ class SourceFeedTests(unittest.TestCase):
         self.assertEqual(app["buildVersion"], self.next_build)
         self.assertEqual(app["size"], 19000123)
         self.assertEqual(app["versions"][0]["version"], f"0.2.{self.next_build}")
-        self.assertTrue(app["downloadURL"].endswith(f"/v0.2.1-build.{self.next_build}/EmberSign.ipa"))
+        self.assertTrue(app["downloadURL"].endswith(f"/v0.2.1-build.{self.next_build}/EmberSign-build-{self.next_build}.ipa"))
         self.assertTrue(any(version["buildVersion"] == "4" for version in app["versions"]))
         self.assertIn("Apple Account", app["localizedDescription"])
 
