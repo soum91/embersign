@@ -36,6 +36,25 @@ def prepare(destination):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
 
+    # Fix the pinned Zsign single-profile path: the C++ write condition
+    # and Feather's Swift `removeProvision` flag are both inverted, so an
+    # apparently signed app can have no embedded.mobileprovision.
+    zsign_bundle = destination / "Zsign/src/bundle.cpp"
+    replace_once(zsign_bundle,
+        '''\tif (!pSignAsset->m_strProvData.empty()) {
+\t\tif (bRemoveProvision) {
+\t\t\tif (!ZFile::WriteFileV''',
+        '''\tif (!pSignAsset->m_strProvData.empty()) {
+\t\tif (!bRemoveProvision) {
+\t\t\tif (!ZFile::WriteFileV''')
+    zsign_handler = app / "Utilities/Handlers/ZsignHandler.swift"
+    handler_source = zsign_handler.read_text()
+    before_flag = "removeProvision: !_options.removeProvisioning,"
+    if handler_source.count(before_flag) != 2:
+        raise RuntimeError("Upstream ZsignHandler removal flag changed")
+    zsign_handler.write_text(handler_source.replace(before_flag,
+        "removeProvision: _options.removeProvisioning,"))
+
     # Zsign's C++ engine can already match each nested bundle with a different
     # ZSignAsset, but its Swift bridge exposes just one profile. Preserve the
     # public Swift API and accept newline-separated profile paths for the Watch
@@ -99,6 +118,29 @@ def prepare(destination):
 \t\tlet handler = ZsignHandler(appUrl: movedAppPath, options: _options, cert: appCertificate)''')
     # Never publish a failed signature as a successfully signed database entry.
     replace_once(signing, '\t\ttry await self.move()\n\t\ttry await self.addToDatabase()\n\t\t\n\t\tif let error = handler.hadError {\n\t\t\tthrow error\n\t\t}', '\t\tif let error = handler.hadError { throw error }\n\t\ttry await self.move()\n\t\ttry await self.addToDatabase()')
+    replace_once(signing,
+        '\t\tif let error = handler.hadError { throw error }\n\t\ttry await self.move()',
+        '''        if let error = handler.hadError { throw error }
+        if _options.signingOption == .default && !_options.removeProvisioning {
+            let profileURL = movedAppPath.appendingPathComponent("embedded.mobileprovision")
+            guard let profileData = try? Data(contentsOf: profileURL),
+                  !profileData.isEmpty else {
+                throw EmberError.message("Signing did not embed a provisioning profile. Check the selected certificate's .mobileprovision and sign again. The app was not added to Signed.")
+            }
+            let profile = try EmberIOSProvisionProfile.parse(profileData)
+            guard !profile.isExpired else {
+                throw EmberError.message("The selected provisioning profile has expired. Refresh it before signing.")
+            }
+            if EmberInstallTarget.isRemote {
+                let destinationUDID = try EmberInstallTarget.targetUDID()
+                guard profile.provisionsAllDevices || profile.provisionedDevices.contains(where: {
+                    $0.caseInsensitiveCompare(destinationUDID) == .orderedSame
+                }) else {
+                    throw EmberError.message("The selected signing profile does not authorize the remote iPhone 13. Provision for the selected destination, then sign again.")
+                }
+            }
+        }
+        try await self.move()''')
 
     tabs = app / "Views/TabView/TabEnum.swift"
     replace_once(tabs, '\tcase sources\n', '\tcase tools\n\tcase sources\n')
@@ -314,6 +356,8 @@ extension SigningView {
     replace_once(install_preview,
         '@AppStorage("Feather.installationMethod") private var _installationMethod: Int = 0',
         '@AppStorage("Feather.installationMethod") private var _installationMethod: Int = 1')
+    replace_once(install_preview, 'message: String(describing: error),',
+                 'message: error.localizedDescription,')
     replace_once(install_preview,
         'InstallerStatusViewModel(isIdevice: UserDefaults.standard.integer(forKey: "Feather.installationMethod") == 1)',
         'InstallerStatusViewModel(isIdevice: UserDefaults.standard.integer(forKey: "Feather.installationMethod") == 1 || EmberInstallTarget.isRemote)')
