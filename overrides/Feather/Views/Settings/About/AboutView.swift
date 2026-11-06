@@ -14,7 +14,7 @@ struct AboutView: View {
                     Text("EmberSign")
                         .font(.largeTitle.bold())
                         .foregroundStyle(.orange)
-                    Text("Version \(version)")
+                    Text("Installed version \(version) (build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"))")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Text("Sign, refresh, and manage apps on your device.")
