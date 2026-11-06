@@ -1,0 +1,19 @@
+name: Installed version UI contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify installed version UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify version and build labels
+        run: python3 scripts/check_version_ui.py

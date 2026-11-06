@@ -20,6 +20,15 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: Verify installed version UI contract
+        shell: bash
+        run: |
+          if command -v python3 >/dev/null 2>&1; then
+            python3 "$GITHUB_WORKSPACE/scripts/check_version_ui.py"
+          else
+            python "$GITHUB_WORKSPACE/scripts/check_version_ui.py"
+          fi
+
       - name: Select the signing engine's tested Xcode version
         run: |
           sudo xcode-select -s /Applications/Xcode_26.3.0.app/Contents/Developer
