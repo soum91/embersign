@@ -28,6 +28,20 @@ class RemoteInstallTests(unittest.TestCase):
         self.assertIn("idevice_pairing_file_free(sessionPairing)", body)
         self.assertIn("actual.caseInsensitiveCompare(expected)", body)
 
+    def test_verification_session_closes_before_services_connect(self):
+        # Wireless lockdownd drops a second concurrent TLS session, so the
+        # UDID-check Lockdown client must be freed before AFC/installd connect.
+        beginning = self.source.index("private static func withVerifiedProvider")
+        end = self.source.index("private static func verifyIdentity", beginning)
+        body = self.source[beginning:end]
+        self.assertNotIn("lockdownd_connect", body)
+        verify = body.index("try verifyIdentity(provider: provider")
+        action = body.index("return try action(provider, actual)")
+        self.assertLess(verify, action)
+        helper = self.source[end:self.source.index("static func probe(at ", end)]
+        self.assertIn("defer { lockdownd_client_free(lockdown) }", helper)
+        self.assertIn("return actual", helper)
+
     def test_discovery_uses_checked_candidate_address(self):
         self.assertIn("verifyRemoteAddress(ip, timeoutSeconds: 7)", self.source)
         self.assertIn("self.onMatch?(ip)", self.source)

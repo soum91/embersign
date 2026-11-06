@@ -226,6 +226,18 @@ private enum EmberRemoteWiFiBridge {
         guard let provider else { throw EmberError.message("Could not establish a trusted remote Wi-Fi device connection.") }
         defer { idevice_provider_free(provider) }
 
+        // Verify identity on a short-lived Lockdown session and close it
+        // BEFORE starting AFC/installation_proxy. Wireless lockdownd drops a
+        // second concurrent TLS session from the same host, which surfaced as
+        // "peer closed connection without sending TLS close_notify" while
+        // connecting to AFC (the upload never left "Packaging").
+        let actual = try verifyIdentity(provider: provider, expected: expected, ip: ip)
+        // Let lockdownd finish tearing down the verification session.
+        usleep(200_000)
+        return try action(provider, actual)
+    }
+
+    private static func verifyIdentity(provider: OpaquePointer, expected: String, ip: String?) throws -> String {
         var lockdown: OpaquePointer?
         if let error = lockdownd_connect(provider, &lockdown) { throw failure(error) }
         guard let lockdown else { throw EmberError.message("iPhone 13 Lockdown service unavailable.") }
@@ -261,7 +273,7 @@ private enum EmberRemoteWiFiBridge {
         guard actual.caseInsensitiveCompare(expected) == .orderedSame else {
             throw EmberError.message("Device mismatch. Pairing file expects \(expected), but Wi-Fi endpoint is \(actual). No app was installed.")
         }
-        return try action(provider, actual)
+        return actual
     }
 
     static func probe(at ip: String) throws -> String {
