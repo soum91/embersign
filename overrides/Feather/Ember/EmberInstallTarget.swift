@@ -298,11 +298,20 @@ private enum EmberRemoteWiFiBridge {
             let installPath = "PublicStaging/\(name)"
             let total = (try FileManager.default.attributesOfItem(atPath: ipa.path)[.size] as? NSNumber)?.uint64Value ?? 0
             guard total > 0 else { throw EmberError.message("The signed IPA is empty or cannot be read.") }
+            // Wireless Lockdown requires the host to answer heartbeat Marco
+            // with Polo. Without it the iPhone tears down every connection from
+            // this host after a few intervals, which surfaces mid-upload as
+            // "peer closed connection without sending TLS close_notify".
+            // Feather's own installer runs HeartbeatManager for exactly this
+            // reason; the remote bridge never did.
+            let heartbeat = EmberRemoteHeartbeat()
+            try heartbeat.start()
             // Cleanup can require another Lockdown handshake. Never block a
             // completed install while the phone is going to sleep.
             defer {
                 DispatchQueue.global(qos: .utility).async {
                     removeStagedIPA(at: afcPath)
+                    heartbeat.stop()
                 }
             }
             // AFC can lose its TLS session during large Wi-Fi uploads. Resume
@@ -318,6 +327,8 @@ private enum EmberRemoteWiFiBridge {
             for attempt in 1...maxReconnects {
                 var reachedSize: UInt64 = 0
                 do {
+                    // A dropped connection may have taken the heartbeat with it.
+                    if !heartbeat.isAlive { try heartbeat.start() }
                     try withVerifiedProvider { provider, _ in
                 var afc: OpaquePointer?
                 if let error = afc_client_connect(provider, &afc) { throw failure(error) }
@@ -404,6 +415,7 @@ private enum EmberRemoteWiFiBridge {
             for attempt in 1...2 {
                 var requestStarted = false
                 do {
+                    if !heartbeat.isAlive { try heartbeat.start() }
                     try withVerifiedProvider { provider, _ in
                 var proxy: OpaquePointer?
                 if let error = installation_proxy_connect(provider, &proxy) { throw failure(error) }
@@ -437,6 +449,17 @@ private enum EmberRemoteWiFiBridge {
         }.value
     }
 
+    /// Opens com.apple.mobile.heartbeat on the verified iPhone and returns the
+    /// owned client. The provider is only needed for the connect itself.
+    static func connectHeartbeat() throws -> OpaquePointer {
+        try withVerifiedProvider { provider, _ in
+            var client: OpaquePointer?
+            if let error = heartbeat_connect(provider, &client) { throw failure(error) }
+            guard let client else { throw EmberError.message("iPhone 13 heartbeat service is unavailable.") }
+            return client
+        }
+    }
+
     private static func removeStagedIPA(at path: String) {
         // Keep the remote AFC directory tidy, but never convert a successful
         // installation into a failure merely because cleanup lost Wi-Fi.
@@ -461,6 +484,60 @@ private enum EmberRemoteWiFiBridge {
 
     private static func awaitStatus(_ model: InstallerStatusViewModel, _ status: InstallerStatusViewModel.InstallerStatus) {
         Task { @MainActor in model.status = status }
+    }
+}
+
+/// Answers the remote iPhone's heartbeat Marco/Polo for the length of an install,
+/// mirroring Feather's HeartbeatManager loop but against the Wi-Fi target.
+private final class EmberRemoteHeartbeat: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generation = 0
+    private var running = false
+
+    var isAlive: Bool { lock.lock(); defer { lock.unlock() }; return running }
+
+    func start() throws {
+        let client = try EmberRemoteWiFiBridge.connectHeartbeat()
+        lock.lock()
+        generation += 1
+        let ticket = generation
+        running = true
+        lock.unlock()
+        let thread = Thread { [weak self] in self?.loop(client, ticket: ticket) }
+        thread.name = "embersign-remote-heartbeat"
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+
+    func stop() {
+        lock.lock()
+        generation += 1
+        running = false
+        lock.unlock()
+    }
+
+    private func loop(_ client: OpaquePointer, ticket: Int) {
+        defer {
+            heartbeat_client_free(client)
+            lock.lock()
+            if generation == ticket { running = false }
+            lock.unlock()
+        }
+        var interval: UInt64 = 15
+        while true {
+            lock.lock(); let current = generation == ticket; lock.unlock()
+            guard current else { return }
+            var next: UInt64 = 0
+            if let error = heartbeat_get_marco(client, interval, &next) {
+                idevice_error_free(error)
+                return
+            }
+            interval = next + 5
+            if let error = heartbeat_send_polo(client) {
+                idevice_error_free(error)
+                return
+            }
+        }
     }
 }
 

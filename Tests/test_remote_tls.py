@@ -21,6 +21,15 @@ class RemoteTLSAndProvisioningTests(unittest.TestCase):
         self.assertIn('source.read(upToCount: chunkSize)', self.install)
         self.assertIn('attempt <= 2 ? 65_536 : 16_384', self.install)
 
+    def test_remote_install_answers_wireless_heartbeat(self):
+        self.assertIn('heartbeat_connect(provider, &client)', self.install)
+        self.assertIn('heartbeat_get_marco(client, interval, &next)', self.install)
+        self.assertIn('heartbeat_send_polo(client)', self.install)
+        self.assertIn('heartbeat_client_free(client)', self.install)
+        start = self.install.index('try heartbeat.start()')
+        self.assertLess(start, self.install.index('afc_client_connect(provider, &afc)', start))
+        self.assertIn('if !heartbeat.isAlive { try heartbeat.start() }', self.install)
+
     def test_sender_stays_awake_during_remote_install(self):
         self.assertIn('EmberInstallKeepAlive.begin()', self.install)
         self.assertIn('isIdleTimerDisabled = true', self.install)
