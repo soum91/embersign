@@ -276,38 +276,74 @@ private enum EmberRemoteWiFiBridge {
                 throw EmberError.message("Signed IPA not found. Sign the app again.")
             }
             try verifySignedProfiles(ipa: ipa, udid: EmberInstallTarget.targetUDID())
-            try withVerifiedProvider { provider, _ in
+            let name = "\(UUID().uuidString).ipa"
+            let afcPath = "/PublicStaging/\(name)"
+            let installPath = "PublicStaging/\(name)"
+            // Cleanup can require another Lockdown handshake. Never block a
+            // completed install while the phone is going to sleep.
+            defer {
+                DispatchQueue.global(qos: .utility).async {
+                    removeStagedIPA(at: afcPath)
+                }
+            }
+            // Retry staging only. No install request has been sent yet, so a
+            // second upload cannot inadvertently install the same app twice.
+            for attempt in 1...2 {
+                do {
+                    try withVerifiedProvider { provider, _ in
                 var afc: OpaquePointer?
                 if let error = afc_client_connect(provider, &afc) { throw failure(error) }
                 guard let afc else { throw EmberError.message("Cannot connect to the iPhone 13 file-staging service.") }
                 defer { afc_client_free(afc) }
-                _ = afc_make_directory(afc, "PublicStaging")
-                let remotePath = "/PublicStaging/\(UUID().uuidString).ipa"
-                defer { _ = afc_remove_path(afc, remotePath) }
+                if let error = afc_make_directory(afc, "PublicStaging") { idevice_error_free(error) }
+                if let error = afc_remove_path(afc, afcPath) { idevice_error_free(error) }
 
                 var handle: OpaquePointer?
-                if let error = afc_file_open(afc, remotePath, AfcWrOnly, &handle) { throw failure(error) }
+                if let error = afc_file_open(afc, afcPath, AfcWrOnly, &handle) { throw failure(error) }
                 guard let handle else { throw EmberError.message("Cannot stage the IPA on the iPhone 13.") }
+                var fileClosed = false
+                defer {
+                    if !fileClosed, let error = afc_file_close(handle) { idevice_error_free(error) }
+                }
                 let source = try FileHandle(forReadingFrom: ipa)
                 defer { try? source.close() }
                 let total = max(1, (try? source.seekToEnd()) ?? 1)
                 try source.seek(toOffset: 0)
                 var sent: UInt64 = 0
                 awaitStatus(viewModel, .sendingPayload)
-                while let chunk = try source.read(upToCount: 1_048_576), !chunk.isEmpty {
+                while let chunk = try source.read(upToCount: 262_144), !chunk.isEmpty {
                     let writeError = chunk.withUnsafeBytes { raw -> UnsafeMutablePointer<IdeviceFfiError>? in
                         afc_file_write(handle, raw.bindMemory(to: UInt8.self).baseAddress, chunk.count)
                     }
                     if let writeError {
-                        _ = afc_file_close(handle)
                         throw failure(writeError)
                     }
                     sent += UInt64(chunk.count)
                     let progress = Double(sent) / Double(total)
                     Task { @MainActor in viewModel.uploadProgress = progress }
                 }
-                if let error = afc_file_close(handle) { throw failure(error) }
+                let closeError = afc_file_close(handle)
+                fileClosed = true
+                if let closeError { throw failure(closeError) }
+                    }
+                    break
+                } catch {
+                    guard attempt == 1 && isRecoverableConnectionFailure(error) else {
+                        if isRecoverableConnectionFailure(error) {
+                            throw EmberError.message("The iPhone 13 closed its Wi-Fi TLS session twice during IPA transfer. Keep it awake, enable wireless syncing, and try a trusted non-isolated Wi-Fi network.")
+                        }
+                        throw EmberError.message("iPhone 13 AFC transfer failed: \(error.localizedDescription)")
+                    }
+                    try await Task.sleep(nanoseconds: 800_000_000)
+                }
+            }
 
+            // Installation Proxy gets its own authenticated session. Apple
+            // expects the package path relative to AFC's root, without '/'.
+            for attempt in 1...2 {
+                var requestStarted = false
+                do {
+                    try withVerifiedProvider { provider, _ in
                 var proxy: OpaquePointer?
                 if let error = installation_proxy_connect(provider, &proxy) { throw failure(error) }
                 guard let proxy else { throw EmberError.message("iPhone 13 installation service is unavailable.") }
@@ -320,13 +356,43 @@ private enum EmberRemoteWiFiBridge {
                 }
                 let retained = Unmanaged.passRetained(viewModel)
                 defer { retained.release() }
-                let installError = remotePath.withCString { path in
+                requestStarted = true
+                let installError = installPath.withCString { path in
                     installation_proxy_install_with_callback(proxy, path, nil, callback, retained.toOpaque())
                 }
                 if let installError { throw failure(installError) }
+                    }
+                    break
+                } catch {
+                    // Do not retry after the install command: an EOF can mean
+                    // Apple completed installation but closed the response.
+                    guard !requestStarted, attempt == 1, isRecoverableConnectionFailure(error) else {
+                        throw EmberError.message("iPhone 13 installation failed: \(error.localizedDescription)")
+                    }
+                    try await Task.sleep(nanoseconds: 800_000_000)
+                }
             }
             await MainActor.run { viewModel.status = .completed(.success(())) }
         }.value
+    }
+
+    private static func removeStagedIPA(at path: String) {
+        // Keep the remote AFC directory tidy, but never convert a successful
+        // installation into a failure merely because cleanup lost Wi-Fi.
+        try? withVerifiedProvider { provider, _ in
+            var afc: OpaquePointer?
+            if let error = afc_client_connect(provider, &afc) { throw failure(error) }
+            guard let afc else { return }
+            defer { afc_client_free(afc) }
+            if let error = afc_remove_path(afc, path) { idevice_error_free(error) }
+        }
+    }
+
+    private static func isRecoverableConnectionFailure(_ error: Error) -> Bool {
+        let description = error.localizedDescription.lowercased()
+        return description.contains("unexpectedeof") || description.contains("unexpected eof") ||
+            description.contains("tls close_notify") || description.contains("connection reset") ||
+            description.contains("broken pipe") || description.contains("connection closed")
     }
 
     private static func awaitStatus(_ model: InstallerStatusViewModel, _ status: InstallerStatusViewModel.InstallerStatus) {

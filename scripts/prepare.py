@@ -276,19 +276,22 @@ private enum EmberGitHubSource {
                 }
 \t\t\t\tButton(.localized("Open"), systemImage: "app.badge.checkmark") {''')
     signing_view = app / "Views/Signing/SigningView.swift"
-    replace_once(signing_view, '\t@State private var _isSigning = false', '\t@State private var _isSigning = false\n    @State private var _isAppleProvisioning = false')
+    replace_once(signing_view, '\t@State private var _isSigning = false', '\t@State private var _isSigning = false\n    @State private var _isAppleProvisioning = false\n    @State private var _showRemoteProfileWarning = false\n    @State private var _provisioningNotice = ""')
     replace_once(signing_view, '\t\tNBSection(.localized("Signing")) {\n\t\t\tif let cert = _selectedCert() {', '''\t\tNBSection(.localized("Signing")) {
             if !EmberAccountManager.shared.accounts.isEmpty {
                 Button {
-                    _provisionWithAppleAccount()
+                    _provisionWithAppleAccount(signAfterProvisioning: true)
                 } label: {
                     HStack {
-                        Label("Provision with Apple Account", systemImage: "person.crop.circle.badge.checkmark")
+                        Label("Provision & sign with Apple Account", systemImage: "person.crop.circle.badge.checkmark")
                         Spacer()
                         if _isAppleProvisioning { ProgressView() }
                     }
                 }
                 .disabled(_isAppleProvisioning)
+                if !_provisioningNotice.isEmpty {
+                    Text(_provisioningNotice).font(.caption).foregroundStyle(.orange)
+                }
             } else {
                 NavigationLink { EmberAccountsView() } label: {
                     Label("Add Apple Account", systemImage: "person.crop.circle.badge.plus")
@@ -297,13 +300,31 @@ private enum EmberGitHubSource {
 \t\t\tif let cert = _selectedCert() {''')
     replace_once(signing_view, '// MARK: - Extension: View (import)\nextension SigningView {\n\tprivate func _start() {', '''// MARK: - Extension: View (import)
 extension SigningView {
-    private func _provisionWithAppleAccount() {
+    private func _provisionWithAppleAccount(signAfterProvisioning: Bool = false) {
         guard let identifier = _temporaryOptions.appIdentifier ?? app.identifier else { return }
         _isAppleProvisioning = true
         Task {
             do {
-                _ = try await EmberAccountManager.shared.provisionSigningIdentity(bundleID: identifier)
+                let createdCertificate: CertificatePair
+                do {
+                    createdCertificate = try await EmberAccountManager.shared.provisionSigningIdentity(bundleID: identifier)
+                } catch {
+                    // Apple's 9401 indicates that the original bundle ID
+                    // cannot be registered to this team. Try a stable app ID
+                    // in EmberSign's namespace without consuming new IDs on
+                    // repeated sign attempts.
+                    guard error.localizedDescription.contains("9401") else { throw error }
+                    let cleaned = identifier.lowercased().replacingOccurrences(
+                        of: "[^a-z0-9]+", with: "", options: .regularExpression
+                    )
+                    let alternate = "com.soum91.embersign.\\(String(cleaned.prefix(64)))"
+                    guard alternate != identifier, !cleaned.isEmpty else { throw error }
+                    createdCertificate = try await EmberAccountManager.shared.provisionSigningIdentity(bundleID: alternate)
+                    _temporaryOptions.appIdentifier = alternate
+                    _provisioningNotice = "Apple rejected the original app ID (9401). Signed using \\(alternate) instead."
+                }
                 _temporaryCertificate = 0
+                if signAfterProvisioning { _startSigning(using: createdCertificate) }
             } catch {
                 EmberErrorCenter.shared.record(error, operation: "Provision signing identity")
                 UIAlertController.showAlertWithOk(title: "Provisioning failed", message: error.localizedDescription)
@@ -312,7 +333,47 @@ extension SigningView {
         }
     }
 
-\tprivate func _start() {''')
+    private func _start() {
+        if EmberInstallTarget.isRemote && _temporaryOptions.signingOption == .default && !_temporaryOptions.removeProvisioning,
+           let certificate = _selectedCert() {
+            do {
+                let udid = try EmberInstallTarget.targetUDID()
+                guard let url = Storage.shared.getFile(.provision, from: certificate) else {
+                    _showRemoteProfileWarning = true
+                    return
+                }
+                let profile = try EmberIOSProvisionProfile.parse(Data(contentsOf: url))
+                if profile.isExpired || (!profile.provisionsAllDevices && !profile.provisionedDevices.contains(where: {
+                    $0.caseInsensitiveCompare(udid) == .orderedSame
+                })) {
+                    _showRemoteProfileWarning = true
+                    return
+                }
+            } catch {
+                UIAlertController.showAlertWithOk(title: "iPhone 13 pairing/profile", message: error.localizedDescription)
+                return
+            }
+        }
+        _startSigning(using: _selectedCert())
+    }
+
+    private func _startSigning(using chosenCertificate: CertificatePair?) {''')
+    replace_once(signing_view, '\t\t\t_selectedCert() != nil || _temporaryOptions.signingOption != .default',
+                 '\t\t\tchosenCertificate != nil || _temporaryOptions.signingOption != .default')
+    replace_once(signing_view, '\t\t\tcertificate: _selectedCert()',
+                 '\t\t\tcertificate: chosenCertificate')
+    replace_once(signing_view, '\t\t.onAppear {\n\t\t\t// ppq protection', '''        .confirmationDialog("The iPhone 13 is not in this signing profile", isPresented: $_showRemoteProfileWarning) {
+            if !EmberAccountManager.shared.accounts.isEmpty {
+                Button("Provision & sign for iPhone 13") {
+                    _provisionWithAppleAccount(signAfterProvisioning: true)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("The selected certificate's profile is not authorized for the iPhone 13. Provision with your Apple Account or ask your certificate provider to add its UDID. The existing certificate cannot grant access by itself.")
+        }
+        .onAppear {
+            // ppq protection''')
     replace_once(signing_view, '''\t\tNBSection(.localized("Signing")) {
             if !EmberAccountManager.shared.accounts.isEmpty {''', '''\t\tNBSection(.localized("Signing")) {
             NavigationLink { EmberInstallTargetView() } label: {
