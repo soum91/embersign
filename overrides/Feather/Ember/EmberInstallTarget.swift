@@ -230,8 +230,27 @@ private enum EmberRemoteWiFiBridge {
         if let error = lockdownd_connect(provider, &lockdown) { throw failure(error) }
         guard let lockdown else { throw EmberError.message("iPhone 13 Lockdown service unavailable.") }
         defer { lockdownd_client_free(lockdown) }
+
+        // Connecting to Lockdown does not authenticate the host. In particular,
+        // GetValue(UniqueDeviceID) may return GetProhibited until a paired TLS
+        // session has been started. The TCP provider consumes the original
+        // pairing handle, so request a fresh owned handle from the provider.
+        var sessionPairing: OpaquePointer?
+        if let error = idevice_provider_get_pairing_file(provider, &sessionPairing) { throw failure(error) }
+        guard let sessionPairing else {
+            throw EmberError.message("The remote device provider has no pairing record. Import a fresh iPhone 13 Lockdown pairing file.")
+        }
+        defer { idevice_pairing_file_free(sessionPairing) }
+        if let error = lockdownd_start_session(lockdown, sessionPairing) {
+            let underlying = failure(error).localizedDescription
+            throw EmberError.message("Could not authenticate the iPhone 13 pairing session at \(ip ?? EmberInstallTarget.remoteIP). Confirm the iPhone trusts the exported iLoader record. \(underlying)")
+        }
+
         var plist: UnsafeMutableRawPointer?
-        if let error = lockdownd_get_value(lockdown, "UniqueDeviceID", nil, &plist) { throw failure(error) }
+        if let error = lockdownd_get_value(lockdown, "UniqueDeviceID", nil, &plist) {
+            let underlying = failure(error).localizedDescription
+            throw EmberError.message("The iPhone 13 rejected device identity verification at \(ip ?? EmberInstallTarget.remoteIP) after pairing. \(underlying)")
+        }
         guard let plist else { throw EmberError.message("Target device did not return its UDID.") }
         defer { plist_free(plist) }
         var value: UnsafeMutablePointer<CChar>?
@@ -369,6 +388,11 @@ private final class EmberRemoteDiscovery: NSObject, ObservableObject, NetService
         onMatch = nil
     }
 
+    func clearResult() {
+        stop()
+        status = ""
+    }
+
     private func stopBrowsing() {
         browser?.stop()
         browser?.delegate = nil
@@ -475,8 +499,8 @@ struct EmberInstallTargetView: View {
                             .textSelection(.enabled)
                     }
                     Button("Import iPhone 13 pairing record") { importing = true }
-                    Button("Import from EmberSign folder (no picker)") { chooseLocalPairing() }
-                    Text("For direct import, save the .plist or .mobiledevicepairing file in Files > On My iPhone > EmberSign.")
+                    Button("Import from On My iPhone > EmberSign") { chooseLocalPairing() }
+                    Text("Use the native picker above. If your file provider cannot open a pairing file, copy it to On My iPhone > EmberSign and use the folder option.")
                         .font(.footnote).foregroundStyle(.secondary)
                     if let importedUDID { LabeledContent("Paired UDID", value: "…\(importedUDID.suffix(8))") }
                     Text("Export a Lockdown pairing file for your iPhone 13 using iLoader. Keep its Wi-Fi syncing enabled and the phone awake while installing. Do not import the iPhone 17's pairing file here.")
@@ -508,6 +532,9 @@ struct EmberInstallTargetView: View {
             }
         }
         .navigationTitle("Install destination")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 28) }
         .fileImporter(isPresented: $importing,
                       // Device pairing files may have a custom .mobiledevicepairing extension.
                       allowedContentTypes: [.item],
@@ -537,8 +564,14 @@ struct EmberInstallTargetView: View {
             if newMode == "remote" && importedUDID != nil {
                 startDiscovery()
             } else {
-                discovery.stop()
+                discovery.clearResult()
             }
+            result = ""
+        }
+        .onChange(of: host) { address in
+            // Discard a prior address's error immediately when the user edits
+            // the host, instead of showing stale failures under the new IP.
+            if !result.isEmpty && !result.contains(address) { result = "" }
         }
         .onDisappear { discovery.stop() }
     }
