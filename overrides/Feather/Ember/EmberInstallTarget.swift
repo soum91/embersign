@@ -277,8 +277,10 @@ private enum EmberRemoteWiFiBridge {
             }
             try verifySignedProfiles(ipa: ipa, udid: EmberInstallTarget.targetUDID())
             let name = "\(UUID().uuidString).ipa"
-            let afcPath = "/PublicStaging/\(name)"
+            let afcPath = "PublicStaging/\(name)"
             let installPath = "PublicStaging/\(name)"
+            let total = (try FileManager.default.attributesOfItem(atPath: ipa.path)[.size] as? NSNumber)?.uint64Value ?? 0
+            guard total > 0 else { throw EmberError.message("The signed IPA is empty or cannot be read.") }
             // Cleanup can require another Lockdown handshake. Never block a
             // completed install while the phone is going to sleep.
             defer {
@@ -286,9 +288,12 @@ private enum EmberRemoteWiFiBridge {
                     removeStagedIPA(at: afcPath)
                 }
             }
-            // Retry staging only. No install request has been sent yet, so a
-            // second upload cannot inadvertently install the same app twice.
-            for attempt in 1...2 {
+            // AFC can lose its TLS session during large Wi-Fi uploads. Resume
+            // from the size reported by the iPhone instead of retransmitting
+            // the entire IPA on every disconnect. This path never resends an
+            // installation command, only the not-yet-installed payload.
+            let maxTransferAttempts = 4
+            for attempt in 1...maxTransferAttempts {
                 do {
                     try withVerifiedProvider { provider, _ in
                 var afc: OpaquePointer?
@@ -296,22 +301,35 @@ private enum EmberRemoteWiFiBridge {
                 guard let afc else { throw EmberError.message("Cannot connect to the iPhone 13 file-staging service.") }
                 defer { afc_client_free(afc) }
                 if let error = afc_make_directory(afc, "PublicStaging") { idevice_error_free(error) }
-                if let error = afc_remove_path(afc, afcPath) { idevice_error_free(error) }
+                if attempt == 1, let error = afc_remove_path(afc, afcPath) { idevice_error_free(error) }
 
                 var handle: OpaquePointer?
-                if let error = afc_file_open(afc, afcPath, AfcWrOnly, &handle) { throw failure(error) }
+                // AfcWrOnly truncates. AfcRw preserves an interrupted upload.
+                let mode = attempt == 1 ? AfcWrOnly : AfcRw
+                if let error = afc_file_open(afc, afcPath, mode, &handle) { throw failure(error) }
                 guard let handle else { throw EmberError.message("Cannot stage the IPA on the iPhone 13.") }
                 var fileClosed = false
                 defer {
                     if !fileClosed, let error = afc_file_close(handle) { idevice_error_free(error) }
                 }
+                var remoteOffset: Int64 = 0
+                if attempt > 1 {
+                    if let error = afc_file_seek(handle, 0, SEEK_END, &remoteOffset) { throw failure(error) }
+                }
+                guard remoteOffset >= 0, UInt64(remoteOffset) <= total else {
+                    throw EmberError.message("The staged IPA has an invalid length. Remove the partial transfer and try signing again.")
+                }
                 let source = try FileHandle(forReadingFrom: ipa)
                 defer { try? source.close() }
-                let total = max(1, (try? source.seekToEnd()) ?? 1)
-                try source.seek(toOffset: 0)
-                var sent: UInt64 = 0
+                try source.seek(toOffset: UInt64(remoteOffset))
+                var sent = UInt64(remoteOffset)
                 awaitStatus(viewModel, .sendingPayload)
-                while let chunk = try source.read(upToCount: 262_144), !chunk.isEmpty {
+                let resumedProgress = Double(sent) / Double(total)
+                Task { @MainActor in viewModel.uploadProgress = resumedProgress }
+                // Smaller AFC packets avoid huge TLS writes on older wireless-
+                // sync services. Reduce size further after repeated failures.
+                let chunkSize = attempt <= 2 ? 65_536 : 16_384
+                while let chunk = try source.read(upToCount: chunkSize), !chunk.isEmpty {
                     let writeError = chunk.withUnsafeBytes { raw -> UnsafeMutablePointer<IdeviceFfiError>? in
                         afc_file_write(handle, raw.bindMemory(to: UInt8.self).baseAddress, chunk.count)
                     }
@@ -322,19 +340,29 @@ private enum EmberRemoteWiFiBridge {
                     let progress = Double(sent) / Double(total)
                     Task { @MainActor in viewModel.uploadProgress = progress }
                 }
+                // A successful write return isn't enough: confirm the remote
+                // file reached the exact source length before installing it.
+                var finalSize: Int64 = 0
+                if let error = afc_file_seek(handle, 0, SEEK_END, &finalSize) { throw failure(error) }
+                guard finalSize >= 0, UInt64(finalSize) == total else {
+                    throw EmberError.message("Staged IPA size mismatch: the iPhone received \(finalSize) of \(total) bytes. Installation was not started.")
+                }
                 let closeError = afc_file_close(handle)
                 fileClosed = true
                 if let closeError { throw failure(closeError) }
                     }
                     break
                 } catch {
-                    guard attempt == 1 && isRecoverableConnectionFailure(error) else {
+                    guard attempt < maxTransferAttempts && isRecoverableConnectionFailure(error) else {
                         if isRecoverableConnectionFailure(error) {
-                            throw EmberError.message("The iPhone 13 closed its Wi-Fi TLS session twice during IPA transfer. Keep it awake, enable wireless syncing, and try a trusted non-isolated Wi-Fi network.")
+                            throw EmberError.message("The iPhone 13 disconnected during IPA staging after \(maxTransferAttempts) attempts. Keep it awake and wireless syncing enabled, then retry on the same trusted Wi-Fi. Last error: \(error.localizedDescription)")
                         }
                         throw EmberError.message("iPhone 13 AFC transfer failed: \(error.localizedDescription)")
                     }
-                    try await Task.sleep(nanoseconds: 800_000_000)
+                    // Give wireless Lockdown time to tear down the broken TLS
+                    // session before creating a fresh authenticated provider.
+                    let pause: UInt64 = attempt == 1 ? 500_000_000 : attempt == 2 ? 1_250_000_000 : 2_500_000_000
+                    try await Task.sleep(nanoseconds: pause)
                 }
             }
 
@@ -392,7 +420,10 @@ private enum EmberRemoteWiFiBridge {
         let description = error.localizedDescription.lowercased()
         return description.contains("unexpectedeof") || description.contains("unexpected eof") ||
             description.contains("tls close_notify") || description.contains("connection reset") ||
-            description.contains("broken pipe") || description.contains("connection closed")
+            description.contains("connectionreset") || description.contains("broken pipe") ||
+            description.contains("brokenpipe") || description.contains("connection closed") ||
+            description.contains("connection aborted") || description.contains("timed out") ||
+            description.contains("tls session closed")
     }
 
     private static func awaitStatus(_ model: InstallerStatusViewModel, _ status: InstallerStatusViewModel.InstallerStatus) {
