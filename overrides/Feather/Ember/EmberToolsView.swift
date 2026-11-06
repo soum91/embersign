@@ -17,7 +17,7 @@ struct EmberToolsView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text("EmberSign").font(.title2.bold())
                             Text("Sign. Customize. Run.").foregroundStyle(.secondary)
-                            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
+                            Text("Installed version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown") (build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"))")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                     }.padding(.vertical, 10)
