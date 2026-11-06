@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.79",
+          "buildVersion": "79",
+          "date": "2026-11-06T16:53:15Z",
+          "localizedDescription": "EmberSign 0.2.1 build 79. Changes: Name release IPA with build number and add changelog to release notes.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.79/EmberSign-build-79.ipa",
+          "size": 23529620,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.78",
           "buildVersion": "78",
           "date": "2026-11-06T15:54:54Z",
@@ -334,12 +343,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.78",
-      "versionDate": "2026-11-06T15:54:54Z",
-      "versionDescription": "EmberSign 0.2.1 build 78: Apple Accounts, signing and provisioning, paired-device app inventory, quota estimates, refresh controls, JIT tools, experimental Watch installation and refresh, GitHub Watch updates, and diagnostics.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.78/EmberSign.ipa",
-      "size": 23529619,
-      "buildVersion": "78"
+      "version": "0.2.79",
+      "versionDate": "2026-11-06T16:53:15Z",
+      "versionDescription": "EmberSign 0.2.1 build 79. Changes: Name release IPA with build number and add changelog to release notes.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.79/EmberSign-build-79.ipa",
+      "size": 23529620,
+      "buildVersion": "79"
     }
   ],
   "news": []
