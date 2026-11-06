@@ -2,7 +2,9 @@ name: Build EmberSign
 
 on:
   push:
-    branches: [main, watch-native, feature/zeus-parity-no-containers, feature/iphone13-target]
+    branches: [main, watch-native, feature/zeus-parity-no-containers, feature/iphone13-target, 'fix/**']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
