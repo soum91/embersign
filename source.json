@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.82",
+          "buildVersion": "82",
+          "date": "2026-11-06T21:00:27Z",
+          "localizedDescription": "EmberSign 0.2.1 build 82. Changes: Enforce visible installed version/build across app releases.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.82/EmberSign-build-82.ipa",
+          "size": 23529033,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.81",
           "buildVersion": "81",
           "date": "2026-11-06T20:33:38Z",
@@ -352,12 +361,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.81",
-      "versionDate": "2026-11-06T20:33:38Z",
-      "versionDescription": "EmberSign 0.2.1 build 81. Changes: Show actual installed app version and build in UI.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.81/EmberSign-build-81.ipa",
-      "size": 23529106,
-      "buildVersion": "81"
+      "version": "0.2.82",
+      "versionDate": "2026-11-06T21:00:27Z",
+      "versionDescription": "EmberSign 0.2.1 build 82. Changes: Enforce visible installed version/build across app releases.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.82/EmberSign-build-82.ipa",
+      "size": 23529033,
+      "buildVersion": "82"
     }
   ],
   "news": []
