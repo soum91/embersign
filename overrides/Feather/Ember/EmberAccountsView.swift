@@ -21,9 +21,21 @@ struct EmberAccountsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(account.auth.account.appleID)
-                                    if manager.selectedAccountID == account.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                                    if manager.sessionsRequiringLogin.contains(account.id) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundStyle(.orange)
+                                            .accessibilityLabel("Apple session expired")
+                                    } else if manager.selectedAccountID == account.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                            .accessibilityLabel("Selected account")
+                                    }
                                 }
                                 Text(account.selectedTeam?.name ?? "No team").font(.caption).foregroundStyle(.secondary)
+                                if manager.sessionsRequiringLogin.contains(account.id) {
+                                    Text("Session expired. Sign in again to restore developer access.")
+                                        .font(.caption).foregroundStyle(.orange)
+                                }
                                 if let inventory = manager.inventories[account.id], let team = account.selectedTeam {
                                     if let remaining = inventory.appIDsRemaining(for: team) {
                                         Text("App IDs: \(inventory.appIDs.count)/10 registered, ~\(remaining) available")
@@ -40,8 +52,16 @@ struct EmberAccountsView: View {
                         }
                     }
                 }
-            } header: { Text("Signed-in accounts") } footer: {
+            } header: { Text("Saved Apple Accounts") } footer: {
                 Text("Passwords are used only for Apple's sign-in request and are not saved. Sessions and signing keys stay in this device's Keychain. Free-team availability is estimated from current registrations; deleting an App ID may not immediately restore Apple's seven-day quota.")
+            }
+
+            if let account = manager.selectedAccount, manager.sessionsRequiringLogin.contains(account.id) {
+                Section("Session recovery") {
+                    Button("Sign in again as \(account.auth.account.appleID)") { showLogin = true }
+                    Text("Your saved signing keys and certificates will be preserved. You may need Apple's two-factor verification.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
 
             Section("Anisette") {
@@ -101,6 +121,9 @@ struct EmberAccountLoginView: View {
                 }
             }
             .navigationTitle("Add Apple Account")
+            .onAppear {
+                if appleID.isEmpty { appleID = manager.selectedAccount?.auth.account.appleID ?? "" }
+            }
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { manager.cancelTwoFactor(); isPresented = false } } }
         }
     }
@@ -146,6 +169,7 @@ private struct EmberTwoFactorView: View {
 struct EmberAccountDetailView: View {
     @ObservedObject private var manager = EmberAccountManager.shared
     let accountID: String
+    @State private var showLogin = false
     @State private var revokeCertificate: X509Certificate?
     @State private var deleteAppID: AppID?
     @State private var deleteProfile: ListedProvisioningProfile?
@@ -165,6 +189,14 @@ struct EmberAccountDetailView: View {
                         ForEach(account.teams) { team in Text("\(team.name) • \(team.type.displayName)").tag(team.identifier) }
                     }
                     Button("Use for new signing") { manager.select(accountID) }
+                    if manager.sessionsRequiringLogin.contains(accountID) {
+                        Label("Apple session expired", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Button("Sign in again") {
+                            manager.select(accountID)
+                            showLogin = true
+                        }
+                    }
                     if let team = account.selectedTeam, let remaining = inventory.appIDsRemaining(for: team) {
                         LabeledContent("Personal Team App IDs", value: "\(inventory.appIDs.count)/10")
                         LabeledContent("Estimated available", value: String(remaining))
@@ -217,6 +249,7 @@ struct EmberAccountDetailView: View {
             }
         }
         .navigationTitle(account?.auth.account.appleID ?? "Account")
+        .sheet(isPresented: $showLogin) { EmberAccountLoginView(isPresented: $showLogin) }
         .toolbar { Button { Task { await manager.refresh(accountID: accountID) } } label: { Image(systemName: "arrow.clockwise") } }
         .confirmationDialog("Revoke this certificate?", isPresented: Binding(get: { revokeCertificate != nil }, set: { if !$0 { revokeCertificate = nil } }), titleVisibility: .visible) {
             if let certificate = revokeCertificate {

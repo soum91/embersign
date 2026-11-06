@@ -21,6 +21,9 @@ struct EmberStoredAccount: Codable, Identifiable, Equatable {
     var selectedTeamID: String
     var signingP12: Data?
     var signingCertificateID: String?
+    // Anisette identities are scoped to the server used for authentication.
+    // Optional so accounts saved by older EmberSign builds still decode.
+    var authAnisetteServer: String?
 
     var selectedTeam: Team? {
         teams.first(where: { $0.identifier == selectedTeamID }) ?? teams.first
@@ -78,6 +81,7 @@ final class EmberAccountManager: ObservableObject {
 
     @Published private(set) var accounts: [EmberStoredAccount] = []
     @Published private(set) var inventories: [String: EmberAccountInventory] = [:]
+    @Published private(set) var sessionsRequiringLogin: Set<String> = []
     @Published var selectedAccountID: String = ""
     @Published var isBusy = false
     @Published var status = "Add an Apple Account to provision free or paid development signing."
@@ -98,6 +102,7 @@ final class EmberAccountManager: ObservableObject {
     private init() {
         accounts = (try? loadAllAccounts()) ?? []
         selectedAccountID = UserDefaults.standard.string(forKey: "EmberSign.selectedAccount") ?? accounts.first?.id ?? ""
+        sessionsRequiringLogin = Set(accounts.filter { $0.auth.session.isExpired }.map(\.id))
     }
 
     var selectedAccount: EmberStoredAccount? {
@@ -186,11 +191,13 @@ final class EmberAccountManager: ObservableObject {
             let stored = EmberStoredAccount(
                 auth: auth, teams: teams, selectedTeamID: selectedTeamID,
                 signingP12: existing?.signingP12,
-                signingCertificateID: existing?.signingCertificateID
+                signingCertificateID: existing?.signingCertificateID,
+                authAnisetteServer: server.absoluteString
             )
             try persist(stored)
             upsert(stored)
             select(stored.id)
+            sessionsRequiringLogin.remove(stored.id)
             status = "Signed in as \(auth.account.appleID)."
             await refresh(accountID: stored.id)
         } catch {
@@ -228,26 +235,91 @@ final class EmberAccountManager: ObservableObject {
 
     func refresh(accountID: String? = nil) async {
         let targetID = accountID ?? selectedAccountID
-        guard let account = accounts.first(where: { $0.id == targetID }), let team = account.selectedTeam else { return }
+        guard let account = accounts.first(where: { $0.id == targetID }), account.selectedTeam != nil else { return }
+        guard account.auth.session.isValid else {
+            sessionsRequiringLogin.insert(targetID)
+            status = "Apple's saved session has expired. Tap Sign in again. Your saved signing keys were not removed."
+            return
+        }
         isBusy = true
         status = "Refreshing \(account.auth.account.appleID)..."
         do {
-            async let certificates = portal.fetchCertificates(for: team, session: account.auth.session)
-            async let appIDs = portal.fetchAppIDs(for: team, session: account.auth.session)
-            async let profiles = portal.listProvisioningProfiles(for: team, session: account.auth.session)
-            async let devices = portal.fetchDevices(for: team, session: account.auth.session)
-            inventories[targetID] = try await EmberAccountInventory(
-                certificates: certificates,
-                appIDs: appIDs,
-                profiles: profiles,
-                devices: devices
-            )
+            do {
+                inventories[targetID] = try await fetchInventory(for: account)
+            } catch {
+                guard Self.isSessionExpired(error) else { throw error }
+                // The saved GrandSlam token may still be usable even when its
+                // one-time Anisette headers have gone stale. Retry once with
+                // fresh data from the original trusted server.
+                do {
+                    let renewed = try await renewAnisette(for: account)
+                    inventories[targetID] = try await fetchInventory(for: renewed)
+                } catch {
+                    // The initial response already confirmed that Apple rejected
+                    // this saved session. An Anisette outage must not hide the
+                    // re-login action behind an unrelated network error.
+                    sessionsRequiringLogin.insert(targetID)
+                    throw EmberError.message("Apple session has expired (-1). Automatic renewal failed: \(error.localizedDescription). Sign in again to restore access.")
+                }
+            }
+            sessionsRequiringLogin.remove(targetID)
             status = "Account data is current."
         } catch {
             EmberErrorCenter.shared.record(error, operation: "Refresh developer account")
-            status = error.localizedDescription
+            if Self.isSessionExpired(error) {
+                sessionsRequiringLogin.insert(targetID)
+                status = "Apple rejected this session (-1). Tap Sign in again to reauthenticate. Your saved certificates and signing keys were kept."
+            } else {
+                status = error.localizedDescription
+            }
         }
         isBusy = false
+    }
+
+    private static func isSessionExpired(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("session has expired") ||
+            (message.contains("session") && message.contains("expired") && message.contains("(-1)"))
+    }
+
+    private func fetchInventory(for account: EmberStoredAccount) async throws -> EmberAccountInventory {
+        guard let team = account.selectedTeam else { throw EmberAccountStoreError.missingTeam }
+        async let certificates = portal.fetchCertificates(for: team, session: account.auth.session)
+        async let appIDs = portal.fetchAppIDs(for: team, session: account.auth.session)
+        async let profiles = portal.listProvisioningProfiles(for: team, session: account.auth.session)
+        async let devices = portal.fetchDevices(for: team, session: account.auth.session)
+        return try await EmberAccountInventory(
+            certificates: certificates, appIDs: appIDs, profiles: profiles, devices: devices
+        )
+    }
+
+    private func renewAnisette(for account: EmberStoredAccount) async throws -> EmberStoredAccount {
+        let rawServer = account.authAnisetteServer ?? anisetteServer
+        guard let server = URL(string: rawServer),
+              ["https", "http"].contains(server.scheme?.lowercased() ?? ""), server.host != nil else {
+            throw EmberAccountStoreError.invalidAnisetteURL
+        }
+        status = "Renewing Apple device headers for \(account.auth.account.appleID)..."
+        let identity = try await fetchServerIdentity(from: server)
+        var headers = AnisetteRequestHeaders()
+        headers.clientInfo = identity.clientInfo
+        headers.userAgent = identity.userAgent
+        let blobKey = anisetteBlobKey(for: server)
+        let existingBlob = try? readKeychain(service: anisetteService, account: blobKey)
+        let manager = AnisetteDataManager(mode: .remote(server: server))
+        let result = try await manager.fetchAnisetteData(
+            identifier: persistentAnisetteIdentifier(for: server),
+            existingAdiBlob: existingBlob, headers: headers
+        )
+        if let blob = result.newAdiBlob { try saveKeychain(blob, service: anisetteService, account: blobKey) }
+        var updated = account
+        var session = updated.auth.session
+        session.anisetteData = result.data
+        updated.auth = AuthSession(account: updated.auth.account, session: session)
+        updated.authAnisetteServer = server.absoluteString
+        try persist(updated)
+        upsert(updated)
+        return updated
     }
 
     func setTeam(_ teamID: String, for accountID: String) async {
@@ -268,6 +340,7 @@ final class EmberAccountManager: ObservableObject {
             try deleteKeychain(service: sessionService, account: id)
             accounts.removeAll { $0.id == id }
             inventories[id] = nil
+            sessionsRequiringLogin.remove(id)
             if selectedAccountID == id { select(accounts.first?.id ?? "") }
             status = "Account removed from this device."
         } catch {
