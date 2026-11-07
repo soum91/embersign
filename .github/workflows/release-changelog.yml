@@ -3,6 +3,12 @@ name: Factual release changelog
 on:
   release:
     types: [published]
+  workflow_run:
+    workflows:
+      - "Build EmberSign"
+    types: [completed]
+  schedule:
+    - cron: '17 */6 * * *'
   workflow_dispatch:
     inputs:
       tag:
@@ -14,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: factual-changelog-${{ github.event.release.tag_name || inputs.tag }}
+  group: factual-changelog-${{ github.event.release.tag_name || inputs.tag || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -203,7 +209,35 @@ jobs:
           
           if __name__ == "__main__":
               try:
-                  main()
+                  if TAG:
+                      main()
+                  else:
+                      # Releases created using GITHUB_TOKEN do not fire another release
+                      # workflow. workflow_run and schedule therefore reconcile any new
+                      # releases that the release event itself could not trigger.
+                      releases = request("GET", "/releases?per_page=40")
+                      changelog = request("GET", "/contents/CHANGELOG.md")
+                      logged = base64.b64decode(changelog["content"]).decode("utf-8")
+                      pending = [
+                          rel for rel in releases
+                          if not rel.get("draft")
+                          and (rel.get("published_at") or "") >= "2026-11-07T00:00:00Z"
+                          and not (
+                              "<!-- verified-changelog:start -->" in (rel.get("body") or "")
+                              and "## [" + rel["tag_name"] + "]" in logged
+                          )
+                      ]
+                      failures = []
+                      for rel in reversed(pending[:20]):
+                          TAG = rel["tag_name"]
+                          try:
+                              main()
+                          except Exception as exc:
+                              failures.append(TAG + ": " + str(exc))
+                      if failures:
+                          raise ValueError("; ".join(failures))
+                      if not pending:
+                          print("No new releases need changelog reconciliation")
               except Exception as exc:
                   print("::error title=Release changelog policy::" + str(exc), file=sys.stderr)
                   sys.exit(1)
