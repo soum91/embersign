@@ -103,6 +103,11 @@ jobs:
               return [p for p in raw.splitlines() if p and p not in excluded]
           
           
+          def release_family(tag):
+              # Keep independent release channels (iOS, Android, add-ons, etc.) apart.
+              return re.sub(r"\d+", "#", tag.lower())
+          
+          
           def main():
               if not TAG:
                   raise ValueError("No release tag supplied")
@@ -115,29 +120,24 @@ jobs:
               if not head:
                   raise ValueError("Published release tag is missing from Git history: " + TAG)
               releases = request("GET", "/releases?per_page=100")
+              previous_candidates = [
+                  candidate for candidate in releases
+                  if candidate.get("id") != release["id"]
+                  and not candidate.get("draft")
+                  and (candidate.get("published_at") or "") < (release.get("published_at") or "")
+              ]
+              previous_candidates.sort(key=lambda item: item.get("published_at") or "", reverse=True)
+              previous_candidates.sort(key=lambda item: release_family(item["tag_name"]) != release_family(TAG))
               prior = None
-              found = False
-              for candidate in releases:
-                  if candidate.get("id") == release["id"]:
-                      found = True
-                      continue
-                  if found and not candidate.get("draft"):
-                      if resolve(candidate["tag_name"]):
-                          prior = candidate
-                          break
-              if not prior:
-                  for candidate in releases:
-                      if candidate["id"] == release["id"] or candidate.get("draft"):
-                          continue
-                      if (candidate.get("published_at") or "") < (release.get("published_at") or ""):
-                          if resolve(candidate["tag_name"]):
-                              prior = candidate
-                              break
-              base = resolve(prior["tag_name"]) if prior else None
-              if base:
-                  ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", base, head], check=False)
-                  if ancestry.returncode != 0:
-                      raise ValueError("Previous release is not an ancestor of this tag; review the release range manually")
+              base = None
+              for candidate in previous_candidates:
+                  candidate_sha = resolve(candidate["tag_name"])
+                  if candidate_sha and subprocess.run(
+                      ["git", "merge-base", "--is-ancestor", candidate_sha, head],
+                      check=False, stdout=subprocess.DEVNULL,
+                  ).returncode == 0:
+                      prior, base = candidate, candidate_sha
+                      break
               range_expr = base + ".." + head if base else head
               log = git("log", "--format=%H%x09%s", range_expr)
               commits = [line.split("\t", 1) for line in log.splitlines() if "\t" in line]
