@@ -1,0 +1,210 @@
+name: Factual release changelog
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published release tag to audit or backfill
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: factual-changelog-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify-and-record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify real changes and record release changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+          
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          TOKEN = os.environ["GH_TOKEN"]
+          TAG = os.environ.get("RELEASE_TAG", "").strip()
+          API = "https://api.github.com/repos/" + REPO
+          
+          
+          def request(method, path, payload=None):
+              data = None if payload is None else json.dumps(payload).encode()
+              req = urllib.request.Request(
+                  API + path,
+                  data=data,
+                  method=method,
+                  headers={
+                      "Authorization": "Bearer " + TOKEN,
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+          
+          
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+          
+          
+          def resolve(tag):
+              try:
+                  return git("rev-parse", "--verify", "refs/tags/" + tag + "^{commit}")
+              except subprocess.CalledProcessError:
+                  return None
+          
+          
+          def specific(subject):
+              s = re.sub(r"^(feat|fix|refactor|perf|build|ci|docs|chore|test)(\([^)]*\))?!?:\s*", "", subject.strip(), flags=re.I)
+              if len(s) < 17 or len(s.split()) < 3:
+                  return False
+              if re.search(r"\[(skip ci|ci skip)\]", subject, flags=re.I):
+                  return False
+              return not bool(re.match(
+                  r"^(merge\b|bump\b|release\b|changelog\b|version\b|update (source|sideload|feed|repo|version|metadata|json)\b|"
+                  r"(fix|update|improve|add|change|resolve|clean up) (bugs?|issues?|things?|stuff|app|code|project|misc|various|minor)\b|"
+                  r"(misc|minor|general|various) (changes|fixes|updates|improvements)\b)",
+                  s, flags=re.I,
+              ))
+          
+          
+          def changed_paths(commit):
+              raw = git("diff-tree", "--no-commit-id", "--name-only", "-r", commit)
+              excluded = ("CHANGELOG.md", "AGENTS.md", "CLAUDE.md", ".github/workflows/release-changelog.yml")
+              return [p for p in raw.splitlines() if p and p not in excluded]
+          
+          
+          def main():
+              if not TAG:
+                  raise ValueError("No release tag supplied")
+              release = request("GET", "/releases/tags/" + urllib.parse.quote(TAG, safe=""))
+              if release.get("draft"):
+                  print("Draft release: no published changelog yet")
+                  return
+              subprocess.run(["git", "fetch", "--force", "--tags", "origin"], check=True, stdout=subprocess.DEVNULL)
+              head = resolve(TAG)
+              if not head:
+                  raise ValueError("Published release tag is missing from Git history: " + TAG)
+              releases = request("GET", "/releases?per_page=100")
+              prior = None
+              found = False
+              for candidate in releases:
+                  if candidate.get("id") == release["id"]:
+                      found = True
+                      continue
+                  if found and not candidate.get("draft"):
+                      if resolve(candidate["tag_name"]):
+                          prior = candidate
+                          break
+              if not prior:
+                  for candidate in releases:
+                      if candidate["id"] == release["id"] or candidate.get("draft"):
+                          continue
+                      if (candidate.get("published_at") or "") < (release.get("published_at") or ""):
+                          if resolve(candidate["tag_name"]):
+                              prior = candidate
+                              break
+              base = resolve(prior["tag_name"]) if prior else None
+              if base:
+                  ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", base, head], check=False)
+                  if ancestry.returncode != 0:
+                      raise ValueError("Previous release is not an ancestor of this tag; review the release range manually")
+              range_expr = base + ".." + head if base else head
+              log = git("log", "--format=%H%x09%s", range_expr)
+              commits = [line.split("\t", 1) for line in log.splitlines() if "\t" in line]
+              real = [(sha, title, changed_paths(sha)) for sha, title in commits if specific(title)]
+              real = [(sha, title, paths) for sha, title, paths in real if paths]
+              body = release.get("body") or ""
+              rebuild = not real and bool(re.search(r"(?im)^##?\s+Rebuild[- ]only\b", body))
+              rebuild_details = [line.strip() for line in body.splitlines() if re.match(r"^\s*[-*]\s+.{35,}", line)]
+              if not real and not (rebuild and rebuild_details and re.search(r"(?i)repackag|sign|toolchain|compiler|artifact|dependency|SDK|certificate", body)):
+                  raise ValueError(
+                      "No evidence-backed, specific source changes since the previous release. "
+                      "Do not publish a generic 'bug fixes/improvements' changelog. "
+                      "For a rebuild-only release, use a '## Rebuild-only' heading and a "
+                      "detailed bullet explaining the actual toolchain, signing, or artifact change."
+                  )
+              compare_url = ("https://github.com/" + REPO + "/compare/" + prior["tag_name"] + "..." + TAG) if prior else ("https://github.com/" + REPO + "/commits/" + TAG)
+              lines = []
+              for sha, subject, paths in real[:100]:
+                  subject = subject.replace("[", r"\[").replace("]", r"\]")
+                  listed = ", ".join(chr(96) + p.replace(chr(96), "") + chr(96) for p in paths[:3])
+                  if len(paths) > 3:
+                      listed += ", and " + str(len(paths) - 3) + " more"
+                  lines.append("- " + subject + " ([" + chr(96) + sha[:8] + chr(96) + "](https://github.com/" + REPO + "/commit/" + sha + "); " + listed + ")")
+              if len(real) > 100:
+                  lines.append("- " + str(len(real) - 100) + " additional specific commits in the comparison linked below.")
+              if rebuild:
+                  lines = ["- No new source changes since the previous release. Documented rebuild reason:"] + rebuild_details
+              title = "## Verified changes since " + (prior["tag_name"] if prior else "project start")
+              evidence = title + "\n\n" + "\n".join(lines) + "\n\n[Inspect exact code changes](" + compare_url + ")"
+              start = "<!-- verified-changelog:start -->"
+              end = "<!-- verified-changelog:end -->"
+              current = release.get("body") or ""
+              if start in current and end in current:
+                  updated = current.split(start)[0].rstrip() + "\n\n" + start + "\n" + evidence + "\n" + end + current.split(end, 1)[1]
+              else:
+                  updated = current.rstrip() + "\n\n" + start + "\n" + evidence + "\n" + end
+              if current != updated:
+                  request("PATCH", "/releases/" + str(release["id"]), {"body": updated})
+              date = (release.get("published_at") or datetime.now(timezone.utc).isoformat())[:10]
+              heading = "## [" + TAG + "] - " + date
+              entry = heading + "\n\n" + evidence + "\n\n"
+              path = "/contents/CHANGELOG.md"
+              for attempt in range(4):
+                  data = request("GET", path)
+                  content = base64.b64decode(data["content"]).decode("utf-8")
+                  if heading in content:
+                      print("Changelog already records " + TAG)
+                      return
+                  if content.startswith("# Changelog"):
+                      rest = content.split("\n", 1)[1].lstrip("\n")
+                      replacement = "# Changelog\n\n" + entry + rest
+                  else:
+                      replacement = "# Changelog\n\n" + entry + content
+                  payload = {
+                      "message": "docs: record factual changes for " + TAG + " [skip ci]",
+                      "content": base64.b64encode(replacement.encode()).decode(),
+                      "sha": data["sha"],
+                  }
+                  try:
+                      request("PUT", path, payload)
+                      print("Updated release body and CHANGELOG.md for " + TAG)
+                      return
+                  except urllib.error.HTTPError as exc:
+                      if exc.code not in (409, 422) or attempt == 3:
+                          raise
+                      time.sleep(1 + attempt)
+              raise RuntimeError("Failed to update changelog")
+          
+          
+          if __name__ == "__main__":
+              try:
+                  main()
+              except Exception as exc:
+                  print("::error title=Release changelog policy::" + str(exc), file=sys.stderr)
+                  sys.exit(1)
+          PY
