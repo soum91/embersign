@@ -1,6 +1,6 @@
 # App release contract (Codex and Claude)
 
-This repository participates in Soumen's installed-version standard. These rules apply to all user-facing app targets and every future release.
+This repository participates in the owner's installed-version standard. These rules apply to all user-facing app targets and every future release.
 
 1. Every installed app must visibly show its **actual installed version and build number** in an accessible app screen (prefer Settings > About; use an appropriate equivalent on TV, Watch, or desktop).
 2. Read the values from the installed package metadata at runtime: iOS/watchOS Info.plist, Android PackageManager, Windows assembly/product version, or Tauri app version. Never display a hardcoded GitHub tag, feed version, or latest-available version as if installed.
@@ -9,7 +9,7 @@ This repository participates in Soumen's installed-version standard. These rules
 5. Before committing, run `python3 scripts/check_version_ui.py`. Release pipelines run this as a mandatory preflight. A failed version contract or failed compilation/package verification blocks publication. Other non-critical tests may remain non-blocking under the established release policy.
 6. This is a source-level regression guard. CI compilation and, when feasible, actual device UI checks remain important. Add stronger tests when new platforms are introduced.
 
-For changes requested by Soumen, work on the existing main/release path unless specifically asked otherwise. Do not create a PR or wait for confirmation merely to apply this convention.
+For changes requested by the repository owner, work on the existing main/release path unless specifically asked otherwise. Do not create a PR or wait for confirmation merely to apply this convention.
 
 ## Mandatory factual release changelog
 
@@ -38,3 +38,8 @@ Applies to Codex, Claude and all future diagnostic/debug/log reporting UI:
 ## Universal diagnostic export contract
 
 Every diagnostic/log report requires Copy with clipboard read-back verification where supported and visible success/failure, native Share, native Save as `.txt` with Files picker (`fileExporter` or `UIDocumentPickerViewController` on iOS), and selectable full text fallback. No silent clipboard-only buttons. Include app/version, device/OS, actionable return codes and redact secrets. Test cross-app paste, Share, Save on a signed device; otherwise mark unverified. Preserve existing policies.
+
+
+## Public attribution and owner privacy
+
+Use `soum91` as the author, maintainer, developer, and publisher in all first-party metadata. Do not publish the owner's legal name, private email, or other personal identifiers in source, licenses, Sileo/FlareStore feeds, release assets, binary packages, generated docs, logs, or commits. Audit generated artifacts before publishing. Preserve legitimate third-party copyright notices. Existing bundle identifiers, app groups, and entitlements must not be silently changed, because doing so can break upgrades and stored data.
