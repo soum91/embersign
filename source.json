@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.84",
+          "buildVersion": "84",
+          "date": "2026-11-10T08:18:16Z",
+          "localizedDescription": "EmberSign 0.2.1 build 84. Changes: Enforce pseudonymous author metadata and owner privacy; Remove owner personal-name attribution.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.84/EmberSign-build-84.ipa",
+          "size": 23529156,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.82",
           "buildVersion": "82",
           "date": "2026-11-06T21:00:27Z",
@@ -361,12 +370,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.82",
-      "versionDate": "2026-11-06T21:00:27Z",
-      "versionDescription": "EmberSign 0.2.1 build 82. Changes: Enforce visible installed version/build across app releases.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.82/EmberSign-build-82.ipa",
-      "size": 23529033,
-      "buildVersion": "82"
+      "version": "0.2.84",
+      "versionDate": "2026-11-10T08:18:16Z",
+      "versionDescription": "EmberSign 0.2.1 build 84. Changes: Enforce pseudonymous author metadata and owner privacy; Remove owner personal-name attribution.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.84/EmberSign-build-84.ipa",
+      "size": 23529156,
+      "buildVersion": "84"
     }
   ],
   "news": []
