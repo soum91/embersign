@@ -97,6 +97,37 @@ def prepare(destination):
         '\tcompletionHandler(bRet);',
         '\tif (completionHandler) completionHandler(bRet);')
 
+    # Feather's HeartbeatManager hardcodes LocalDevVPN at 10.7.0.1:49152.
+    # LocalDevVPN can hand out another subnet (e.g. 10.7.1.1), and EmberSign
+    # already stores the real endpoint in Tools. Without this every local
+    # install, including the Watch flow's iPhone host, failed with
+    # "Missing Pairing (-7001)" while EmberSign's own Watch code connected.
+    heartbeat = destination / "IDeviceKitten/Sources/IDeviceSwift/Heartbeat/Heartbeat.swift"
+    replace_once(heartbeat,
+        '\tpublic let ipAddress: String = "10.7.0.1"\n',
+        '''\tpublic var ipAddress: String {
+\t\tvar probe = in_addr()
+\t\tif let saved = UserDefaults.standard.string(forKey: "EmberSign.jit.endpoint.deviceIP")?
+\t\t\t.trimmingCharacters(in: .whitespacesAndNewlines),
+\t\t   inet_pton(AF_INET, saved, &probe) == 1 {
+\t\t\treturn saved
+\t\t}
+\t\treturn "10.7.0.1"
+\t}
+''')
+    replace_once(heartbeat,
+        '\tpublic let port_rsd: UInt16 = UInt16(49152)\n',
+        '''\tpublic var port_rsd: UInt16 {
+\t\tlet saved = UserDefaults.standard.integer(forKey: "EmberSign.jit.endpoint.port")
+\t\treturn (1...65535).contains(saved) ? UInt16(saved) : 49152
+\t}
+''')
+    # A failed tunnel attempt left isRestartInProgress set, so every later
+    # install returned "success" with no adapter until EmberSign relaunched.
+    replace_once(destination / "IDeviceKitten/Sources/IDeviceSwift/Heartbeat/Heartbeat+start.swift",
+        '\t\tisRestartInProgress = true\n\t\trestartLock.lock()\n\t\tdefer { restartLock.unlock() }\n\t\t\n\t\tguard let pairingFile = getPairingRsd() else {',
+        '\t\tisRestartInProgress = true\n\t\trestartLock.lock()\n\t\tdefer { restartLock.unlock(); isRestartInProgress = false }\n\t\t\n\t\tguard let pairingFile = getPairingRsd() else {')
+
     options = app / "Backend/Observable/OptionsManager.swift"
     replace_once(options, "struct Options: Codable, Equatable {", "struct Options: Codable, Equatable {\n\t/// Prepare debugger entitlements using an authorized development profile.\n\tvar prepareForJIT: Bool = false")
     view = app / "Views/Signing/Shared/SigningOptionsView.swift"

@@ -27,6 +27,13 @@ class WatchNativeSafetyTests(unittest.TestCase):
             for call in code.split("Zsign.sign(")[1:]:
                 self.assertIn("completion:", call.split(") else {")[0], name)
 
+    def test_feather_installer_uses_the_configured_localdevvpn_endpoint(self):
+        prepare = (ROOT / "scripts/prepare.py").read_text(encoding="utf-8")
+        self.assertIn('\'\\tpublic let ipAddress: String = "10.7.0.1"\\n\'', prepare)
+        self.assertIn('forKey: "EmberSign.jit.endpoint.deviceIP"', prepare)
+        self.assertIn('forKey: "EmberSign.jit.endpoint.port"', prepare)
+        self.assertIn("defer { restartLock.unlock(); isRestartInProgress = false }", prepare)
+
 
 if __name__ == "__main__":
     unittest.main()
