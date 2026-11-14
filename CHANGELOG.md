@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.2.1-build.87] - 2026-11-14
+
+## Verified changes since v0.2.1-build.86
+
+- Fix "Missing Pairing (-7001)" on local installs when LocalDevVPN is not 10.7.0.1 ([`07221152`](https://github.com/soum91/embersign/commit/0722115222347902b31dc3e117638a281f8856a9); `Tests/test_watch_native_safety.py`, `scripts/prepare.py`)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.86...v0.2.1-build.87)
+
 ## [v0.2.1-build.86] - 2026-11-14
 
 ## Verified changes since v0.2.1-build.85
