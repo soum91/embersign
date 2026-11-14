@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.2.1-build.85] - 2026-11-14
+
+## Verified changes since v0.2.1-build.84
+
+- Fix Apple session expiry (1100), native Watch crash, and opaque install errors ([`86b83e31`](https://github.com/soum91/embersign/commit/86b83e3121bb4cbc9d5392c5e2f03d9b24a2aff9); `Tests/test_account_session.py`, `Tests/test_watch_native_safety.py`, `overrides/Feather/Ember/EmberAccountManager.swift`, and 2 more)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.84...v0.2.1-build.85)
+
 ## [v0.2.1-build.84] - 2026-11-10
 
 ## Verified changes since v0.2.1-build.82
