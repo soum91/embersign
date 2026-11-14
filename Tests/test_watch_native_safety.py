@@ -49,3 +49,12 @@ class WatchSigningKeepsProfilesTests(unittest.TestCase):
             source = Path(path).read_text()
             self.assertNotIn("removeProvision: true", source, path)
             self.assertIn("removeProvision: false", source, path)
+
+
+class ZsignNestedSealOrderTests(unittest.TestCase):
+    def test_nested_profiles_are_written_before_codesign_seal(self):
+        # watchOS rejected WatchLinkWatch.app with 0xe8008017 because Zsign
+        # wrote nested embedded.mobileprovision after sealing CodeResources.
+        source = Path("scripts/prepare.py").read_text()
+        self.assertIn("Write the matching profile first, then seal.", source)
+        self.assertIn('ZFile::CreateFolderV("%s/_CodeSignature", strBaseFolder.c_str());', source)

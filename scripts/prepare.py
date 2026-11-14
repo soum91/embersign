@@ -47,6 +47,15 @@ def prepare(destination):
         '''\tif (!pSignAsset->m_strProvData.empty()) {
 \t\tif (!bRemoveProvision) {
 \t\t\tif (!ZFile::WriteFileV''')
+    # Zsign's multi-profile path wrote each nested bundle's
+    # embedded.mobileprovision AFTER generating that bundle's CodeResources,
+    # so the nested Watch app's seal hashed the old (or no) profile. iOS does
+    # not deep-verify the nested Watch bundle, but watchOS installd does and
+    # rejected it with 0xe8008017 "A signed resource has been added, modified,
+    # or deleted". Write the matching profile first, then seal.
+    replace_once(zsign_bundle, '\tif (m_pSignAssets) {\n\t\tauto endsWith = [](const string& str, const string& suffix) {\n\t\t\treturn str.size() >= suffix.size() && 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);\n\t\t};\n\n\t\tfor (auto it = m_pSignAssets->rbegin(); it != m_pSignAssets->rend(); ++it) {\n\t\t\tm_pSignAsset = &(*it);\n\t\t\tif (endsWith(m_pSignAsset->m_strApplicationId, strBundleId)) {\n\t\t\t\tif (!ZFile::WriteFileV(m_pSignAsset->m_strProvData, "%s/%s/embedded.mobileprovision", m_strAppFolder.c_str(), strFolder.c_str())) {\n\t\t\t\t\tZLog::ErrorV(">>> Can\'t write embedded.mobileprovision!\\n");\n\t\t\t\t\treturn false;\n\t\t\t\t}\n\t\t\t\tbreak;\n\t\t\t}\n\t\t}\n\t}\n\n\tif (m_pSignAssets) {\n\t\tauto endsWith = [](const string& str, const string& suffix) {\n\t\t\treturn str.size() >= suffix.size() && 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);\n\t\t};\n\n\t\tfor (auto it = m_pSignAssets->rbegin(); it != m_pSignAssets->rend(); ++it) {\n\t\t\tm_pSignAsset = &(*it);\n\t\t\tif (endsWith(m_pSignAsset->m_strApplicationId, strBundleId)) {\n\t\t\t\tif (!ZFile::WriteFileV(m_pSignAsset->m_strProvData, "%s/%s/embedded.mobileprovision", m_strAppFolder.c_str(), strFolder.c_str())) {\n\t\t\t\t\tZLog::ErrorV(">>> Can\'t write embedded.mobileprovision!\\n");\n\t\t\t\t\treturn false;\n\t\t\t\t}\n\t\t\t\tbreak;\n\t\t\t}\n\t\t}\n\t}\n\n', "")
+    replace_once(zsign_bundle, '\tZFile::CreateFolderV("%s/_CodeSignature", strBaseFolder.c_str());\n',
+        '\tif (m_pSignAssets) {\n\t\tauto endsWith = [](const string& str, const string& suffix) {\n\t\t\treturn str.size() >= suffix.size() && 0 == str.compare(str.size()-suffix.size(), suffix.size(), suffix);\n\t\t};\n\n\t\tfor (auto it = m_pSignAssets->rbegin(); it != m_pSignAssets->rend(); ++it) {\n\t\t\tm_pSignAsset = &(*it);\n\t\t\tif (endsWith(m_pSignAsset->m_strApplicationId, strBundleId)) {\n\t\t\t\tif (!ZFile::WriteFileV(m_pSignAsset->m_strProvData, "%s/%s/embedded.mobileprovision", m_strAppFolder.c_str(), strFolder.c_str())) {\n\t\t\t\t\tZLog::ErrorV(">>> Can\'t write embedded.mobileprovision!\\n");\n\t\t\t\t\treturn false;\n\t\t\t\t}\n\t\t\t\tbreak;\n\t\t\t}\n\t\t}\n\t}\n\n' + "\n" + '\tZFile::CreateFolderV("%s/_CodeSignature", strBaseFolder.c_str());\n')
     zsign_handler = app / "Utilities/Handlers/ZsignHandler.swift"
     handler_source = zsign_handler.read_text()
     before_flag = "removeProvision: !_options.removeProvisioning,"
