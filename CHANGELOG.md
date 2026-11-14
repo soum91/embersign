@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.2.1-build.89] - 2026-11-14
+
+## Verified changes since v0.2.1-build.88
+
+- Seal nested Watch bundles after writing their provisioning profile ([`2ab28775`](https://github.com/soum91/embersign/commit/2ab287754e54b66d1706e70e5015938a874aed15); `Tests/test_watch_native_safety.py`, `scripts/prepare.py`)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.88...v0.2.1-build.89)
+
 ## [v0.2.1-build.88] - 2026-11-14
 
 ## Verified changes since v0.2.1-build.87
