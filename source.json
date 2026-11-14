@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.86",
+          "buildVersion": "86",
+          "date": "2026-11-14T19:54:04Z",
+          "localizedDescription": "EmberSign 0.2.1 build 86. Changes: Fix Watch signing crash: Zsign called a nil completion block.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.86/EmberSign-build-86.ipa",
+          "size": 23542449,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.85",
           "buildVersion": "85",
           "date": "2026-11-14T19:17:50Z",
@@ -379,12 +388,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.85",
-      "versionDate": "2026-11-14T19:17:50Z",
-      "versionDescription": "EmberSign 0.2.1 build 85. Changes: Fix Apple session expiry (1100), native Watch crash, and opaque install errors.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.85/EmberSign-build-85.ipa",
-      "size": 23542469,
-      "buildVersion": "85"
+      "version": "0.2.86",
+      "versionDate": "2026-11-14T19:54:04Z",
+      "versionDescription": "EmberSign 0.2.1 build 86. Changes: Fix Watch signing crash: Zsign called a nil completion block.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.86/EmberSign-build-86.ipa",
+      "size": 23542449,
+      "buildVersion": "86"
     }
   ],
   "news": []
