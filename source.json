@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.88",
+          "buildVersion": "88",
+          "date": "2026-11-14T21:52:51Z",
+          "localizedDescription": "EmberSign 0.2.1 build 88. Changes: Keep embedded profiles when signing the Apple Watch and extensions.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.88/EmberSign-build-88.ipa",
+          "size": 23544709,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.87",
           "buildVersion": "87",
           "date": "2026-11-14T20:34:07Z",
@@ -397,12 +406,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.87",
-      "versionDate": "2026-11-14T20:34:07Z",
-      "versionDescription": "EmberSign 0.2.1 build 87. Changes: Fix \"Missing Pairing (-7001)\" on local installs when LocalDevVPN is not 10.7.0.1.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.87/EmberSign-build-87.ipa",
-      "size": 23545513,
-      "buildVersion": "87"
+      "version": "0.2.88",
+      "versionDate": "2026-11-14T21:52:51Z",
+      "versionDescription": "EmberSign 0.2.1 build 88. Changes: Keep embedded profiles when signing the Apple Watch and extensions.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.88/EmberSign-build-88.ipa",
+      "size": 23544709,
+      "buildVersion": "88"
     }
   ],
   "news": []
