@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.2.1-build.88] - 2026-11-14
+
+## Verified changes since v0.2.1-build.87
+
+- Keep embedded profiles when signing the Apple Watch and extensions ([`e3215594`](https://github.com/soum91/embersign/commit/e321559415f3307b9466ad3e5a0b7865ba78589f); `Tests/test_watch_native_safety.py`, `overrides/Feather/Ember/EmberIOSExtensions.swift`, `overrides/Feather/Ember/EmberWatchSupportView.swift`)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.87...v0.2.1-build.88)
+
 ## [v0.2.1-build.87] - 2026-11-14
 
 ## Verified changes since v0.2.1-build.86
