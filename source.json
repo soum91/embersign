@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.85",
+          "buildVersion": "85",
+          "date": "2026-11-14T19:17:50Z",
+          "localizedDescription": "EmberSign 0.2.1 build 85. Changes: Fix Apple session expiry (1100), native Watch crash, and opaque install errors.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.85/EmberSign-build-85.ipa",
+          "size": 23542469,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.84",
           "buildVersion": "84",
           "date": "2026-11-10T08:18:16Z",
@@ -370,12 +379,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.84",
-      "versionDate": "2026-11-10T08:18:16Z",
-      "versionDescription": "EmberSign 0.2.1 build 84. Changes: Enforce pseudonymous author metadata and owner privacy; Remove owner personal-name attribution.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.84/EmberSign-build-84.ipa",
-      "size": 23529156,
-      "buildVersion": "84"
+      "version": "0.2.85",
+      "versionDate": "2026-11-14T19:17:50Z",
+      "versionDescription": "EmberSign 0.2.1 build 85. Changes: Fix Apple session expiry (1100), native Watch crash, and opaque install errors.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.85/EmberSign-build-85.ipa",
+      "size": 23542469,
+      "buildVersion": "85"
     }
   ],
   "news": []
