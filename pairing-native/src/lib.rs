@@ -277,6 +277,21 @@ const WATCH_ZIP_EXTRA: &[u8] = &[
     0x00, 0x04, 0x14, 0x00, 0x00, 0x00,
 ];
 
+/// Runs native work so that a Rust panic (including one inside the idevice
+/// crate) is reported as an error instead of unwinding across the C ABI,
+/// which aborts the whole app.
+fn guard_panics<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
+        Ok(result) => result,
+        Err(payload) => {
+            let detail = payload.downcast_ref::<&str>().map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".into());
+            Err(format!("Native Watch transfer crashed internally ({detail}). No app was removed. Retry with the Watch unlocked; if it repeats, report this message."))
+        }
+    }
+}
+
 fn watch_arg(pointer: *const c_char, name: &str) -> Result<String, String> {
     if pointer.is_null() { return Err(format!("Missing {name}.")); }
     let value = unsafe { CStr::from_ptr(pointer) }
@@ -347,7 +362,7 @@ pub unsafe extern "C" fn embersign_watch_discover(
     if device_port == 0 || iphone_udid.is_null() || watch_udids.is_null() {
         failure(error, "Invalid Watch discovery arguments."); return 1;
     }
-    let outcome = (|| -> Result<(String, String), String> {
+    let outcome = guard_panics(|| -> Result<(String, String), String> {
         let pairing_path = watch_arg(pairing_path, "pairing path")?;
         let device_ip = watch_arg(device_ip, "Device IP")?;
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
@@ -363,7 +378,7 @@ pub unsafe extern "C" fn embersign_watch_discover(
             Ok::<_, String>((phone, watches))
         })?;
         Ok((phone, watches.join(",")))
-    })();
+    });
     match outcome {
         Ok((phone, csv)) => {
             unsafe { *iphone_udid = CString::new(phone).unwrap_or_default().into_raw(); }
@@ -565,7 +580,7 @@ pub unsafe extern "C" fn embersign_watch_install_signed(
     watch_app_path: *const c_char, status_callback: PINCallback,
     status_context: *mut c_void, error: *mut *mut c_char,
 ) -> i32 {
-    let outcome = (|| -> Result<(), String> {
+    let outcome = guard_panics(|| -> Result<(), String> {
         let pairing_path = watch_arg(pairing_path, "pairing path")?;
         let device_ip = watch_arg(device_ip, "Device IP")?;
         let host_id = watch_arg(host_id, "host identifier")?;
@@ -577,7 +592,7 @@ pub unsafe extern "C" fn embersign_watch_install_signed(
         runtime.block_on(watch_install(&pairing_path, &device_ip, device_port,
             &host_id, &system_buid, Path::new(&watch_path),
             Notification { callback: status_callback, context: status_context }))
-    })();
+    });
     match outcome {
         Ok(()) => 0,
         Err(message) => { failure(error, &message); 1 }

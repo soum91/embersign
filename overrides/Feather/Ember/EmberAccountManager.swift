@@ -98,6 +98,9 @@ final class EmberAccountManager: ObservableObject {
     private var twoFactorContinuation: CheckedContinuation<TwoFactorResponse, Error>?
     private let sessionService = "com.soum91.embersign.apple-accounts"
     private let anisetteService = "com.soum91.embersign.anisette"
+    // Device-only keychain item so an expired Apple developer session can be
+    // renewed in place instead of failing every request with "(1100)".
+    private let passwordService = "com.soum91.embersign.apple-passwords"
 
     private init() {
         accounts = (try? loadAllAccounts()) ?? []
@@ -151,53 +154,11 @@ final class EmberAccountManager: ObservableObject {
         status = "Requesting Anisette data..."
         UserDefaults.standard.set(anisetteServer, forKey: "EmberSign.anisetteServer")
         do {
-            status = "Checking Anisette device identity..."
-            let identity = try await fetchServerIdentity(from: server)
-            var headers = AnisetteRequestHeaders()
-            headers.clientInfo = identity.clientInfo
-            headers.userAgent = identity.userAgent
-
-            let deviceID = persistentAnisetteIdentifier(for: server)
-            let blobKey = anisetteBlobKey(for: server)
-            let existingBlob = try? readKeychain(service: anisetteService, account: blobKey)
-            status = "Requesting Anisette data..."
-            let manager = AnisetteDataManager(mode: .remote(server: server))
-            let result = try await manager.fetchAnisetteData(identifier: deviceID, existingAdiBlob: existingBlob, headers: headers)
-            if let blob = result.newAdiBlob { try saveKeychain(blob, service: anisetteService, account: blobKey) }
-
-            // SideSign's default GrandSlam user agent describes Xcode on a newer Mac.
-            // Use the user agent advertised by the server that actually made the ADI data.
-            var authHeaders = SideSignHeaders()
-            authHeaders.grandSlam.userAgent = identity.userAgent
-            let loginPortal = DeveloperPortal(customHeaders: authHeaders)
-            status = "Authenticating with Apple..."
-            let auth = try await loginPortal.authenticate(
-                appleID: appleID,
-                password: password,
-                anisetteData: result.data,
-                xcodeVersion: "26.0",
-                verificationHandler: { [weak self] request in
-                    guard let self else { throw EmberAccountStoreError.cancelled }
-                    return try await self.requestTwoFactor(request)
-                }
-            )
-            let teams = try await loginPortal.fetchTeams(for: auth.account, session: auth.session)
-            guard let team = teams.first else { throw EmberAccountStoreError.missingTeam }
-            // Reauthentication must not erase a private signing key already saved for this Apple Account.
-            let existing = accounts.first(where: { $0.id == auth.account.appleID.lowercased() })
-            let selectedTeamID = existing.flatMap { previous in
-                teams.first(where: { $0.identifier == previous.selectedTeamID })?.identifier
-            } ?? team.identifier
-            let stored = EmberStoredAccount(
-                auth: auth, teams: teams, selectedTeamID: selectedTeamID,
-                signingP12: existing?.signingP12,
-                signingCertificateID: existing?.signingCertificateID,
-                authAnisetteServer: server.absoluteString
-            )
-            try persist(stored)
-            upsert(stored)
+            let stored = try await authenticate(appleID: appleID, password: password, server: server, interactive: true)
+            // Saved only after Apple accepted it, so a typo is never stored.
+            try? saveKeychain(Data(password.utf8), service: passwordService, account: stored.id)
             select(stored.id)
-            sessionsRequiringLogin.remove(stored.id)
+            let auth = stored.auth
             status = "Signed in as \(auth.account.appleID)."
             await refresh(accountID: stored.id)
         } catch {
@@ -212,6 +173,63 @@ final class EmberAccountManager: ObservableObject {
             }
         }
         isBusy = false
+    }
+
+    /// Full GrandSlam sign-in. Persists and returns the account, preserving
+    /// any saved signing key and team selection.
+    private func authenticate(appleID: String, password: String, server: URL, interactive: Bool) async throws -> EmberStoredAccount {
+        status = "Checking Anisette device identity..."
+        let identity = try await fetchServerIdentity(from: server)
+        var headers = AnisetteRequestHeaders()
+        headers.clientInfo = identity.clientInfo
+        headers.userAgent = identity.userAgent
+
+        let deviceID = persistentAnisetteIdentifier(for: server)
+        let blobKey = anisetteBlobKey(for: server)
+        let existingBlob = try? readKeychain(service: anisetteService, account: blobKey)
+        status = "Requesting Anisette data..."
+        let manager = AnisetteDataManager(mode: .remote(server: server))
+        let result = try await manager.fetchAnisetteData(identifier: deviceID, existingAdiBlob: existingBlob, headers: headers)
+        if let blob = result.newAdiBlob { try saveKeychain(blob, service: anisetteService, account: blobKey) }
+
+        // SideSign's default GrandSlam user agent describes Xcode on a newer Mac.
+        // Use the user agent advertised by the server that actually made the ADI data.
+        var authHeaders = SideSignHeaders()
+        authHeaders.grandSlam.userAgent = identity.userAgent
+        let loginPortal = DeveloperPortal(customHeaders: authHeaders)
+        status = "Authenticating with Apple..."
+        let auth = try await loginPortal.authenticate(
+            appleID: appleID,
+            password: password,
+            anisetteData: result.data,
+            xcodeVersion: "26.0",
+            verificationHandler: { [weak self] request in
+                guard let self else { throw EmberAccountStoreError.cancelled }
+                // A background renewal must never wait on a 2FA sheet the
+                // current screen cannot show.
+                guard interactive else {
+                    throw EmberError.message("Apple asked for a two-factor code.")
+                }
+                return try await self.requestTwoFactor(request)
+            }
+        )
+        let teams = try await loginPortal.fetchTeams(for: auth.account, session: auth.session)
+        guard let team = teams.first else { throw EmberAccountStoreError.missingTeam }
+        // Reauthentication must not erase a private signing key already saved for this Apple Account.
+        let existing = accounts.first(where: { $0.id == auth.account.appleID.lowercased() })
+        let selectedTeamID = existing.flatMap { previous in
+            teams.first(where: { $0.identifier == previous.selectedTeamID })?.identifier
+        } ?? team.identifier
+        let stored = EmberStoredAccount(
+            auth: auth, teams: teams, selectedTeamID: selectedTeamID,
+            signingP12: existing?.signingP12,
+            signingCertificateID: existing?.signingCertificateID,
+            authAnisetteServer: server.absoluteString
+        )
+        try persist(stored)
+        upsert(stored)
+        sessionsRequiringLogin.remove(stored.id)
+        return stored
     }
 
     func respondToTwoFactor(_ response: TwoFactorResponse) {
@@ -236,42 +254,18 @@ final class EmberAccountManager: ObservableObject {
     func refresh(accountID: String? = nil) async {
         let targetID = accountID ?? selectedAccountID
         guard let account = accounts.first(where: { $0.id == targetID }), account.selectedTeam != nil else { return }
-        guard account.auth.session.isValid else {
-            sessionsRequiringLogin.insert(targetID)
-            status = "Apple's saved session has expired. Tap Sign in again. Your saved signing keys were not removed."
-            return
-        }
         isBusy = true
         status = "Refreshing \(account.auth.account.appleID)..."
         do {
-            do {
-                inventories[targetID] = try await fetchInventory(for: account)
-            } catch {
-                guard Self.isSessionExpired(error) else { throw error }
-                // The saved GrandSlam token may still be usable even when its
-                // one-time Anisette headers have gone stale. Retry once with
-                // fresh data from the original trusted server.
-                do {
-                    let renewed = try await renewAnisette(for: account)
-                    inventories[targetID] = try await fetchInventory(for: renewed)
-                } catch {
-                    // The initial response already confirmed that Apple rejected
-                    // this saved session. An Anisette outage must not hide the
-                    // re-login action behind an unrelated network error.
-                    sessionsRequiringLogin.insert(targetID)
-                    throw EmberError.message("Apple session has expired (-1). Automatic renewal failed: \(error.localizedDescription). Sign in again to restore access.")
-                }
+            inventories[targetID] = try await withAppleSession(accountID: targetID) { account in
+                try await self.fetchInventory(for: account)
             }
             sessionsRequiringLogin.remove(targetID)
             status = "Account data is current."
         } catch {
             EmberErrorCenter.shared.record(error, operation: "Refresh developer account")
-            if Self.isSessionExpired(error) {
-                sessionsRequiringLogin.insert(targetID)
-                status = "Apple rejected this session (-1). Tap Sign in again to reauthenticate. Your saved certificates and signing keys were kept."
-            } else {
-                status = error.localizedDescription
-            }
+            if Self.isSessionExpired(error) { sessionsRequiringLogin.insert(targetID) }
+            status = error.localizedDescription
         }
         isBusy = false
     }
@@ -279,7 +273,55 @@ final class EmberAccountManager: ObservableObject {
     private static func isSessionExpired(_ error: Error) -> Bool {
         let message = error.localizedDescription.lowercased()
         return message.contains("session has expired") ||
+            (message.contains("please log in") && message.contains("1100")) ||
             (message.contains("session") && message.contains("expired") && message.contains("(-1)"))
+    }
+
+    /// Runs Apple developer requests for one account and recovers an expired
+    /// session automatically: first with fresh Anisette headers, then with a
+    /// silent sign-in using the saved password. Only asks the user to sign in
+    /// when neither works.
+    func withAppleSession<T>(accountID: String, _ operation: (EmberStoredAccount) async throws -> T) async throws -> T {
+        guard var account = accounts.first(where: { $0.id == accountID }) else { throw EmberAccountStoreError.missingAccount }
+        if !account.auth.session.isValid {
+            account = try await recoverSession(for: account)
+        }
+        do {
+            let value = try await operation(account)
+            sessionsRequiringLogin.remove(accountID)
+            return value
+        } catch {
+            guard Self.isSessionExpired(error) else { throw error }
+        }
+        if let renewed = try? await renewAnisette(for: account) {
+            do {
+                let value = try await operation(renewed)
+                sessionsRequiringLogin.remove(accountID)
+                return value
+            } catch {
+                guard Self.isSessionExpired(error) else { throw error }
+            }
+        }
+        let reauthenticated = try await recoverSession(for: account)
+        return try await operation(reauthenticated)
+    }
+
+    private func recoverSession(for account: EmberStoredAccount) async throws -> EmberStoredAccount {
+        let appleID = account.auth.account.appleID
+        guard let data = try? readKeychain(service: passwordService, account: account.id),
+              let password = String(data: data, encoding: .utf8), !password.isEmpty else {
+            sessionsRequiringLogin.insert(account.id)
+            throw EmberError.message("Apple's session for \(appleID) has expired. Sign in once more in Settings > Apple Accounts. After that EmberSign renews it automatically.")
+        }
+        let rawServer = account.authAnisetteServer ?? anisetteServer
+        guard let server = URL(string: rawServer), server.host != nil else { throw EmberAccountStoreError.invalidAnisetteURL }
+        status = "Apple session expired. Signing in to \(appleID) again..."
+        do {
+            return try await authenticate(appleID: appleID, password: password, server: server, interactive: false)
+        } catch {
+            sessionsRequiringLogin.insert(account.id)
+            throw EmberError.message("Apple's session for \(appleID) expired and automatic sign-in failed: \(error.localizedDescription) Sign in again in Settings > Apple Accounts.")
+        }
     }
 
     private func fetchInventory(for account: EmberStoredAccount) async throws -> EmberAccountInventory {
@@ -338,6 +380,7 @@ final class EmberAccountManager: ObservableObject {
     func removeAccount(_ id: String) {
         do {
             try deleteKeychain(service: sessionService, account: id)
+            try? deleteKeychain(service: passwordService, account: id)
             accounts.removeAll { $0.id == id }
             inventories[id] = nil
             sessionsRequiringLogin.remove(id)
@@ -428,7 +471,13 @@ final class EmberAccountManager: ObservableObject {
 
     func provisionSigningIdentity(bundleID: String, accountID: String? = nil) async throws -> CertificatePair {
         let targetID = accountID ?? selectedAccountID
-        guard var account = accounts.first(where: { $0.id == targetID }) else { throw EmberAccountStoreError.missingAccount }
+        return try await withAppleSession(accountID: targetID) { account in
+            try await self.provisionSigningIdentity(bundleID: bundleID, account: account)
+        }
+    }
+
+    private func provisionSigningIdentity(bundleID: String, account startAccount: EmberStoredAccount) async throws -> CertificatePair {
+        var account = startAccount
         guard let team = account.selectedTeam else { throw EmberAccountStoreError.missingTeam }
         let udid = try EmberInstallTarget.targetUDID()
 
@@ -506,7 +555,14 @@ final class EmberAccountManager: ObservableObject {
     /// App ID, an iPhone-compatible profile, and one shared signing identity.
     /// Never reuse the host's provisioning profile for an extension.
     func provisionIOSExtensionBundleSet(bundleIDs: [String]) async throws -> EmberWatchSigningIdentity {
-        guard var account = selectedAccount else { throw EmberAccountStoreError.missingAccount }
+        guard let selected = selectedAccount else { throw EmberAccountStoreError.missingAccount }
+        return try await withAppleSession(accountID: selected.id) { account in
+            try await self.provisionIOSExtensionBundleSet(bundleIDs: bundleIDs, account: account)
+        }
+    }
+
+    private func provisionIOSExtensionBundleSet(bundleIDs: [String], account startAccount: EmberStoredAccount) async throws -> EmberWatchSigningIdentity {
+        var account = startAccount
         guard let team = account.selectedTeam else { throw EmberAccountStoreError.missingTeam }
         let ids = Array(Set(bundleIDs)).sorted()
         guard ids.count == bundleIDs.count, (2...8).contains(ids.count),
@@ -585,7 +641,14 @@ final class EmberAccountManager: ObservableObject {
     /// Watch profiles must explicitly include the registered Watch UDID;
     /// reusing a profile generated for the iPhone would produce an invalid IPA.
     func provisionWatchCompanion(plan: EmberWatchBundlePlan, iphoneUDID: String, watchUDID: String) async throws -> EmberWatchSigningIdentity {
-        guard var account = selectedAccount else { throw EmberAccountStoreError.missingAccount }
+        guard let selected = selectedAccount else { throw EmberAccountStoreError.missingAccount }
+        return try await withAppleSession(accountID: selected.id) { account in
+            try await self.provisionWatchCompanion(plan: plan, iphoneUDID: iphoneUDID, watchUDID: watchUDID, account: account)
+        }
+    }
+
+    private func provisionWatchCompanion(plan: EmberWatchBundlePlan, iphoneUDID: String, watchUDID: String, account startAccount: EmberStoredAccount) async throws -> EmberWatchSigningIdentity {
+        var account = startAccount
         guard let team = account.selectedTeam else { throw EmberAccountStoreError.missingTeam }
         guard !watchUDID.isEmpty else { throw EmberError.message("Connect and discover your paired Apple Watch first.") }
         guard !iphoneUDID.isEmpty else { throw EmberAccountStoreError.missingPairingUDID }
