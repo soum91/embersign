@@ -37,3 +37,15 @@ class WatchNativeSafetyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WatchSigningKeepsProfilesTests(unittest.TestCase):
+    def test_watch_and_extension_signing_keep_embedded_profiles(self):
+        # removeProvision: true makes Zsign strip embedded.mobileprovision from
+        # nested bundles after the seal is computed, which installd rejects with
+        # "A signed resource has been added, modified, or deleted" (0xe8008017).
+        for path in ("overrides/Feather/Ember/EmberWatchSupportView.swift",
+                     "overrides/Feather/Ember/EmberIOSExtensions.swift"):
+            source = Path(path).read_text()
+            self.assertNotIn("removeProvision: true", source, path)
+            self.assertIn("removeProvision: false", source, path)
