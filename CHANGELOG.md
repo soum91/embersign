@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.2.1-build.86] - 2026-11-14
+
+## Verified changes since v0.2.1-build.85
+
+- Fix Watch signing crash: Zsign called a nil completion block ([`1f921706`](https://github.com/soum91/embersign/commit/1f9217067cccb31fee2922b2ca2b02572c6c9b1b); `Tests/test_watch_native_safety.py`, `overrides/Feather/Ember/EmberIOSExtensions.swift`, `overrides/Feather/Ember/EmberWatchSupportView.swift`, and 1 more)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.85...v0.2.1-build.86)
+
 ## [v0.2.1-build.85] - 2026-11-14
 
 ## Verified changes since v0.2.1-build.84
