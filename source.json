@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.89",
+          "buildVersion": "89",
+          "date": "2026-11-14T22:26:50Z",
+          "localizedDescription": "EmberSign 0.2.1 build 89. Changes: Seal nested Watch bundles after writing their provisioning profile.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.89/EmberSign-build-89.ipa",
+          "size": 23544526,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.88",
           "buildVersion": "88",
           "date": "2026-11-14T21:52:51Z",
@@ -406,12 +415,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.88",
-      "versionDate": "2026-11-14T21:52:51Z",
-      "versionDescription": "EmberSign 0.2.1 build 88. Changes: Keep embedded profiles when signing the Apple Watch and extensions.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.88/EmberSign-build-88.ipa",
-      "size": 23544709,
-      "buildVersion": "88"
+      "version": "0.2.89",
+      "versionDate": "2026-11-14T22:26:50Z",
+      "versionDescription": "EmberSign 0.2.1 build 89. Changes: Seal nested Watch bundles after writing their provisioning profile.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.89/EmberSign-build-89.ipa",
+      "size": 23544526,
+      "buildVersion": "89"
     }
   ],
   "news": []
