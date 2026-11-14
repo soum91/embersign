@@ -889,7 +889,8 @@ private func emberSignWatchIPA(
     // through a newline-delimited provisionPath. Single-profile callers are
     // untouched and each nested bundle receives its OWN embedded profile.
     guard Zsign.sign(appPath: host.path, provisionPath: profilePaths.joined(separator: "\n"),
-                     p12Path: certificate.path, p12Password: "", removeProvision: true) else {
+                     p12Path: certificate.path, p12Password: "", removeProvision: true,
+                     completion: { _ in }) else {
         throw EmberError.message("Zsign rejected the iPhone, Watch or widget signing targets.")
     }
     try emberVerifySignedWatch(host: host, plan: plan)

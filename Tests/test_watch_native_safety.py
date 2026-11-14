@@ -19,6 +19,14 @@ class WatchNativeSafetyTests(unittest.TestCase):
         self.assertIn("extension IDeviceSwiftError: LocalizedError", code)
         self.assertIn("var errorDescription: String?", code)
 
+    def test_zsign_never_calls_a_missing_completion_block(self):
+        prepare = (ROOT / "scripts/prepare.py").read_text(encoding="utf-8")
+        self.assertIn("if (completionHandler) completionHandler(bRet);", prepare)
+        for name in ("EmberWatchSupportView.swift", "EmberIOSExtensions.swift"):
+            code = (ROOT / "overrides/Feather/Ember" / name).read_text(encoding="utf-8")
+            for call in code.split("Zsign.sign(")[1:]:
+                self.assertIn("completion:", call.split(") else {")[0], name)
+
 
 if __name__ == "__main__":
     unittest.main()

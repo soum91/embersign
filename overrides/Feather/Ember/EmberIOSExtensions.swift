@@ -353,7 +353,8 @@ private func emberSignIOSExtensionBundle(
         profilePaths.append(profile.path)
     }
     guard Zsign.sign(appPath: host.path, provisionPath: profilePaths.joined(separator: "\n"),
-                     p12Path: cert.path, p12Password: password, removeProvision: true) else {
+                     p12Path: cert.path, p12Password: password, removeProvision: true,
+                     completion: { _ in }) else {
         throw EmberIOSExtensionInstallError.signingFailed
     }
     for target in plan.bundles {

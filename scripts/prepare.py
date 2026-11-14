@@ -90,6 +90,13 @@ def prepare(destination):
         bRet = bundle.SignFolder(&zsa, strFolder, strBundleId, strBundleVersion, strDisplayName, arrDylibFiles, arrDisDylibFiles, bForce, bWeakInject, bEnableCache, excludeprovion);
     }''')
 
+    # zsign() invokes its completion block unconditionally. Swift's
+    # Zsign.sign(completion:) defaults to nil, so any caller that omits it
+    # crashed with EXC_BAD_ACCESS at 0x10 right after signing succeeded.
+    replace_once(zsign_bridge,
+        '\tcompletionHandler(bRet);',
+        '\tif (completionHandler) completionHandler(bRet);')
+
     options = app / "Backend/Observable/OptionsManager.swift"
     replace_once(options, "struct Options: Codable, Equatable {", "struct Options: Codable, Equatable {\n\t/// Prepare debugger entitlements using an authorized development profile.\n\tvar prepareForJIT: Bool = false")
     view = app / "Views/Signing/Shared/SigningOptionsView.swift"
