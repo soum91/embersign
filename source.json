@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.98",
+          "buildVersion": "98",
+          "date": "2026-11-15T04:59:28Z",
+          "localizedDescription": "EmberSign 0.2.1 build 98. Changes: Refresh Apps and Sources and preserve signing identity.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.98/EmberSign-build-98.ipa",
+          "size": 23608390,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.97",
           "buildVersion": "97",
           "date": "2026-11-15T03:47:39Z",
@@ -442,12 +451,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.97",
-      "versionDate": "2026-11-15T03:47:39Z",
-      "versionDescription": "EmberSign 0.2.1 build 97. Changes: Update and re-sign Watch companions directly from Sources and Apps; Show Watch preparation errors and retry guidance in Apps and Sources.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.97/EmberSign-build-97.ipa",
-      "size": 23599197,
-      "buildVersion": "97"
+      "version": "0.2.98",
+      "versionDate": "2026-11-15T04:59:28Z",
+      "versionDescription": "EmberSign 0.2.1 build 98. Changes: Refresh Apps and Sources and preserve signing identity.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.98/EmberSign-build-98.ipa",
+      "size": 23608390,
+      "buildVersion": "98"
     }
   ],
   "news": []
