@@ -27,6 +27,7 @@ struct EmberWatchTrackedApp: Codable {
     /// repo's source.json entry, so update checks match on these instead.
     var feedBundleID: String? = nil
     var feedBuild: String? = nil
+    var name: String? = nil
 }
 
 struct EmberWatchRelease: Decodable {
@@ -123,6 +124,11 @@ final class EmberWatchRefreshManager: ObservableObject {
         }
     }
 
+    static func repoSource(bundleID: String, requested: String, existing: String?) -> String {
+        EmberWatchRepositoryPolicy.source(bundleID: bundleID, requested: requested,
+                                          existing: existing, defaultSource: defaultSource)
+    }
+
     private func isDue(_ app: EmberWatchTrackedApp) -> Bool {
         app.expiresAt.timeIntervalSinceNow <= Double(thresholdDays) * 86_400
     }
@@ -144,6 +150,8 @@ final class EmberWatchRefreshManager: ObservableObject {
     }
 
     func refresh(_ app: EmberWatchTrackedApp, force: Bool) async -> EmberWatchRefreshOutcome {
+        var app = app
+        app.sourceURL = Self.repoSource(bundleID: app.bundleID, requested: app.sourceURL, existing: nil)
         guard EmberAccountManager.shared.selectedAccountID == app.accountID else {
             status = "Select the original Apple Account (\(app.accountID)) before renewing \(app.bundleID)."
             return .failed
@@ -340,9 +348,11 @@ final class EmberWatchRefreshManager: ObservableObject {
                                           expiresAt: exactExpiration ?? estimatedExpiration,
                                           expirationEstimated: exactExpiration == nil,
                                           lastInstalled: Date(),
-                                          sourceURL: sourceURL.isEmpty ? (existing?.sourceURL ?? "") : sourceURL,
+                                          sourceURL: Self.repoSource(bundleID: bundleID, requested: sourceURL,
+                                                                     existing: existing?.sourceURL),
                                           feedBundleID: feedBundleID ?? existing?.feedBundleID,
-                                          feedBuild: feedBuild ?? (isCachedRefresh ? existing?.feedBuild : nil))
+                                          feedBuild: feedBuild ?? (isCachedRefresh ? existing?.feedBuild : nil),
+                                          name: plist?["CFBundleDisplayName"] as? String ?? plist?["CFBundleName"] as? String)
         do {
             try remember(input, record: record)
             progress("\(bundleID) installed and saved for refresh (build \(record.feedBuild ?? build)).")

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Recognize both legacy `Watch/` and modern `PlugIns/` companions in Sources and Apps update downloads. Validate companion metadata before routing to per-target iPhone + Watch provisioning and installation.
+- Show tracked Watch apps in Apps with installed version/build, transfer progress, and a single update/re-sign action. Route existing Library Install, Sign, and Re-sign actions for embedded Watch packages through that same pipeline instead of installing only the host.
+- Correct empty or inherited WristPane-default repo URLs for WatchLink installs so repo refreshes query the WatchLink feed. Preserve explicitly selected custom repos.
+- Add archive layout regression cases. Real-device repo updates and Watch installs remain unverified.
+
 ## [v0.2.1-build.95] - 2026-11-15
 
 ## Verified changes since v0.2.1-build.91

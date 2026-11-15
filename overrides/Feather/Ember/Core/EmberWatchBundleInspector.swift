@@ -55,6 +55,13 @@ public enum EmberWatchBundleError: Error, LocalizedError, Equatable {
 /// Only the few plist paths needed for watch preflight may be materialized from
 /// an untrusted IPA. This policy runs BEFORE any filesystem writes.
 public enum EmberWatchArchivePolicy {
+    public static func isWatchCompanionInfoPlist(_ path: String) -> Bool {
+        guard (try? shouldReadInfoPlist(path, size: 0)) == true else { return false }
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        return parts.count == 5 && ["Watch", "PlugIns"].contains(String(parts[2]))
+            && parts[3].hasSuffix(".app")
+    }
+
     public static func shouldReadInfoPlist(_ path: String, size: UInt64) throws -> Bool {
         guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\"), !path.contains("\0") else {
             throw EmberWatchBundleError.unsafeArchivePath(path)
@@ -155,5 +162,16 @@ public enum EmberWatchBundleInspector {
             }
         }
         return EmberWatchBundlePlan(targets: targets)
+    }
+}
+
+/// Repair the old Watch tools default without replacing an explicitly selected repo.
+public enum EmberWatchRepositoryPolicy {
+    public static func source(bundleID: String, requested: String, existing: String?, defaultSource: String) -> String {
+        let source = requested.isEmpty ? (existing ?? "") : requested
+        if bundleID == "dev.watchlink.companion", source.isEmpty || source == defaultSource {
+            return "https://raw.githubusercontent.com/soum91/watchlink/main/source.json"
+        }
+        return source
     }
 }

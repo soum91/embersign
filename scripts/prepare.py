@@ -143,8 +143,8 @@ def prepare(destination):
     replace_once(app / "Utilities/FR.swift",
         '\t\tcompletion: @escaping (Error?) -> Void\n\t) {\n\t\tTask.detached {\n\t\t\tlet handler = AppFileHandler(',
         '\t\tcompletion: @escaping (Error?) -> Void\n\t) {\n'
-        '\t\tif let emberProvenance = sourceProvenance ?? download?.sourceProvenance,\n'
-        '\t\t   EmberWatchSourceRouter.shouldRoute(ipa, download: download, provenance: emberProvenance) {\n'
+        '\t\tlet emberProvenance = sourceProvenance ?? download?.sourceProvenance\n'
+        '\t\tif EmberWatchSourceRouter.shouldRoute(ipa, download: download, provenance: emberProvenance) {\n'
         '\t\t\tEmberWatchSourceRouter.route(ipa, provenance: emberProvenance, completion: completion)\n'
         '\t\t\treturn\n'
         '\t\t}\n'
@@ -329,7 +329,17 @@ private enum EmberGitHubSource {
                 }''')
     # Both the old tunnel settings screen and Tools use the same validated manager.
     (app / "Views/Settings/Installation/Tunnel & Pairing/TunnelView.swift").write_text('import SwiftUI\n\nstruct TunnelView: View {\n    var body: some View { EmberPairingView() }\n}\n')
+    library = app / "Views/Library/LibraryView.swift"
+    replace_once(library, '\t@StateObject var downloadManager = DownloadManager.shared', '\t@StateObject var downloadManager = DownloadManager.shared\n    @ObservedObject private var watchRefresh = EmberWatchRefreshManager.shared')
+    replace_once(library, '\t\t\tNBListAdaptable {', '\t\t\tNBListAdaptable {\n                EmberWatchAppsSection(searchText: _searchText)')
+    replace_once(library, '\t\t\t\t\t_filteredImportedApps.isEmpty\n', '\t\t\t\t\t_filteredImportedApps.isEmpty,\n                    watchRefresh.trackedApps.isEmpty\n')
     cell = app / "Views/Library/LibraryCellView.swift"
+    for selection in ("selectedInstallAppPresenting", "selectedSigningAppPresenting"):
+        text = cell.read_text()
+        assignment = f"{selection} = AnyApp(base: app)"
+        if assignment not in text:
+            raise RuntimeError("Library Watch install/sign anchor changed")
+        cell.write_text(text.replace(assignment, f"if !EmberWatchSourceRouter.routeLibraryIfNeeded(app) {{ {assignment} }}"))
     replace_once(cell, '\t\t\t\tButton(.localized("Open"), systemImage: "app.badge.checkmark") {', '''                Button("Enable JIT", systemImage: "bolt.fill") {
                     EmberJITService.shared.present(bundleID: id)
                 }

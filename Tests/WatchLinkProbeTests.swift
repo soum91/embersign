@@ -23,6 +23,31 @@ final class WatchLinkProbeTests: XCTestCase {
         let command = words([0x1d, 16, 48, UInt32(signature.count)], big: false)
         return header + command + signature
     }
+    func testWatchArchiveLayoutsAndNonWatchEntries() {
+        XCTAssertTrue(EmberWatchArchivePolicy.isWatchCompanionInfoPlist("Payload/Host.app/Watch/Watch.app/Info.plist"))
+        XCTAssertTrue(EmberWatchArchivePolicy.isWatchCompanionInfoPlist("Payload/Host.app/PlugIns/Watch.app/Info.plist"))
+        for path in ["Payload/Host.app/Info.plist", "Payload/Host.app/PlugIns/Widget.appex/Info.plist",
+                     "Payload/Host.app/AppClips/Clip.app/Info.plist", "Payload/Host.app/../Watch.app/Info.plist",
+                     "/Payload/Host.app/Watch/Watch.app/Info.plist"] {
+            XCTAssertFalse(EmberWatchArchivePolicy.isWatchCompanionInfoPlist(path))
+        }
+    }
+
+    func testWatchLinkInheritedRepoRepairPreservesCustomSources() {
+        let old = "https://raw.githubusercontent.com/soum91/wristpane/main/source.json"
+        let fixed = "https://raw.githubusercontent.com/soum91/watchlink/main/source.json"
+        for requested in ["", old] {
+            XCTAssertEqual(EmberWatchRepositoryPolicy.source(bundleID: "dev.watchlink.companion",
+                requested: requested, existing: nil, defaultSource: old), fixed)
+        }
+        XCTAssertEqual(EmberWatchRepositoryPolicy.source(bundleID: "dev.watchlink.companion",
+            requested: "", existing: old, defaultSource: old), fixed)
+        XCTAssertEqual(EmberWatchRepositoryPolicy.source(bundleID: "dev.watchlink.companion",
+            requested: "https://example.com/custom.json", existing: old, defaultSource: old), "https://example.com/custom.json")
+        XCTAssertEqual(EmberWatchRepositoryPolicy.source(bundleID: "com.soum91.wristpane",
+            requested: old, existing: nil, defaultSource: old), old)
+    }
+
     func testDedicatedGroupOnlyForExactWatchLinkPlan() throws {
         let plan = EmberWatchBundlePlan(targets: [
             .init(kind: .iphoneApp, bundleID: "dev.watchlink.companion", relativePath: "."),

@@ -86,6 +86,6 @@ class WatchSourcesRoutingTests(unittest.TestCase):
         prepare = Path("scripts/prepare.py").read_text()
         self.assertIn("EmberWatchSourceRouter.shouldRoute(ipa, download: download, provenance: emberProvenance)", prepare)
         router = Path("overrides/Feather/Ember/EmberWatchSourceRouter.swift").read_text()
-        self.assertIn('parts[2] == "Watch"', router)
+        self.assertIn("EmberWatchArchivePolicy.isWatchCompanionInfoPlist(entry.path)", router)
         self.assertIn("installFromSource(file: copy, provenance: provenance)", router)
         self.assertIn("download?.onlyArchiving != true", router)
