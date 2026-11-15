@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.91",
+          "buildVersion": "91",
+          "date": "2026-11-15T00:45:28Z",
+          "localizedDescription": "EmberSign 0.2.1 build 91. Changes: Update Apple Watch apps from their repo automatically; Install and update Apple Watch apps straight from Sources repos.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.91/EmberSign-build-91.ipa",
+          "size": 23563743,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.89",
           "buildVersion": "89",
           "date": "2026-11-14T22:26:50Z",
@@ -415,12 +424,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.89",
-      "versionDate": "2026-11-14T22:26:50Z",
-      "versionDescription": "EmberSign 0.2.1 build 89. Changes: Seal nested Watch bundles after writing their provisioning profile.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.89/EmberSign-build-89.ipa",
-      "size": 23544526,
-      "buildVersion": "89"
+      "version": "0.2.91",
+      "versionDate": "2026-11-15T00:45:28Z",
+      "versionDescription": "EmberSign 0.2.1 build 91. Changes: Update Apple Watch apps from their repo automatically; Install and update Apple Watch apps straight from Sources repos.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.91/EmberSign-build-91.ipa",
+      "size": 23563743,
+      "buildVersion": "91"
     }
   ],
   "news": []
