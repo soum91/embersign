@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.2.1-build.95] - 2026-11-15
+
+## Verified changes since v0.2.1-build.91
+
+- Restore compatible Xcode dependency caches for signing-flow builds ([`210daf94`](https://github.com/soum91/embersign/commit/210daf9494ec0ddf23fb8582088a8658f2e73b76); `.github/workflows/build.yml`)
+- Disambiguate Developer Portal AppGroup from EmberSign widget storage ([`af41d664`](https://github.com/soum91/embersign/commit/af41d66417e1e053f4ded5aaa9b110eb50c571a1); `overrides/Feather/Ember/EmberAccountManager.swift`)
+- Snapshot existing WatchLink group memberships after obtaining a certificate ([`3595cfa7`](https://github.com/soum91/embersign/commit/3595cfa745ecbd352f625ff0632c7f214cf5f4ad); `overrides/Feather/Ember/EmberAccountManager.swift`)
+- Provision WatchLink probe App Group and verify signed entitlements ([`450bf0a9`](https://github.com/soum91/embersign/commit/450bf0a976fd51513500543cf5e210b3f7785b3e); `.github/workflows/build.yml`, `Tests/WatchLinkProbeTests.swift`, `overrides/Feather/Ember/Core/EmberWatchLinkProbe.swift`, and 2 more)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.91...v0.2.1-build.95)
+
 ## Unreleased
 
 - Provision a stable, team-specific disposable App Group for the exact WatchLink iPhone and Watch bundle IDs. Enable the capability, preserve existing authorized group memberships, assign the group, and download fresh per-target profiles. Other Watch apps retain their existing provisioning flow.
