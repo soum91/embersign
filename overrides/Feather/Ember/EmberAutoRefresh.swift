@@ -118,14 +118,16 @@ final class EmberAutoRefreshManager: ObservableObject {
         if remindersEnabled { Task { await scheduleReminders() } }
     }
 
-    /// Only apps with a known EmberSign Apple Account can be refreshed here.
-    /// A purchased/enterprise certificate is never silently replaced by a free account.
+    /// Refresh apps backed by a linked Apple Account or an explicitly imported
+    /// signing certificate. Never silently replace a purchased/enterprise
+    /// certificate with a free account.
     func trackedApps() -> [EmberRefreshEntry] {
         var seen = Set<String>()
         return signedApps().compactMap { app in
             guard let id = app.identifier, !id.isEmpty,
                   id != Bundle.main.bundleIdentifier,
-                  EmberAccountManager.shared.accountID(for: id) != nil,
+                  EmberAccountManager.shared.accountID(for: id) != nil
+                    || Storage.shared.getCertificate(from: app) != nil,
                   seen.insert(id).inserted else { return nil }
             return EmberRefreshEntry(id: id, name: app.name ?? id)
         }
@@ -133,24 +135,37 @@ final class EmberAutoRefreshManager: ObservableObject {
 
     func refresh(bundleID: String) async -> Bool {
         guard !isRunning else { return false }
-        guard EmberAccountManager.shared.accountID(for: bundleID) != nil,
-              let app = signedApps().first(where: { $0.identifier == bundleID }) else {
-            status = "No signed IPA and Apple Account are recorded for \(bundleID). Import it before refreshing."
+        guard let app = signedApps().first(where: { $0.identifier == bundleID }),
+              EmberAccountManager.shared.accountID(for: bundleID) != nil
+                || Storage.shared.getCertificate(from: app) != nil else {
+            status = "No signed IPA and matching Apple Account or imported signing certificate are recorded for \(bundleID). Import it and its signing identity before refreshing."
             return false
+        }
+        if !EmberInstallTarget.isRemote,
+           let watchApp = EmberWatchRefreshManager.shared.trackedApps.first(where: { $0.bundleID == bundleID }) {
+            guard EmberAccountManager.shared.accountID(for: bundleID) == watchApp.accountID else {
+                status = "The iPhone and Watch copy of \(bundleID) use different Apple Accounts. Select the Watch app's account before updating both."
+                return false
+            }
+            return await EmberWatchRefreshManager.shared.refresh(watchApp, force: true) == .success
         }
         return await performRefresh([app], includeWatch: false)
     }
 
     func refreshAll(force: Bool = false) async -> Bool {
         guard !isRunning else { return false }
+        if EmberInstallTarget.isRemote {
+            status = "Bulk refresh is paused while Remote iPhone is selected. Open an app in Apps and refresh it individually so only the chosen app is sent over Wi-Fi."
+            return false
+        }
         var seen = Set<String>()
         let apps: [Signed] = (enabled || force) ? signedApps().filter { app in
             guard let bundleID = app.identifier,
                   bundleID != Bundle.main.bundleIdentifier,
-                  EmberAccountManager.shared.accountID(for: bundleID) != nil,
                   seen.insert(bundleID).inserted else { return false }
             if force { return true }
-            guard let expiry = Storage.shared.getCertificate(from: app)?.expiration else { return true }
+            guard EmberAccountManager.shared.accountID(for: bundleID) != nil,
+                  let expiry = Storage.shared.getCertificate(from: app)?.expiration else { return false }
             return expiry.timeIntervalSinceNow <= Double(thresholdDays) * 86_400
         } : []
 
@@ -158,19 +173,29 @@ final class EmberAutoRefreshManager: ObservableObject {
     }
 
     private func performRefresh(_ apps: [Signed], includeWatch: Bool, forceWatch: Bool = false) async -> Bool {
-        if EmberInstallTarget.isRemote && !apps.isEmpty {
-            status = "Automatic iPhone app refresh is paused while the remote iPhone 13 is selected. Switch to This iPhone before refreshing local apps. Remote apps require an explicit installation."
-            return false
-        }
         isRunning = true
         defer { isRunning = false }
         var failures = 0
         for app in apps {
             guard let bundleID = app.identifier else { continue }
+            if !EmberInstallTarget.isRemote,
+               let watchApp = EmberWatchRefreshManager.shared.trackedApps.first(where: { $0.bundleID == bundleID }),
+               EmberAccountManager.shared.accountID(for: bundleID) == watchApp.accountID {
+                if await EmberWatchRefreshManager.shared.refresh(watchApp, force: true) == .failed {
+                    failures += 1
+                }
+                continue
+            }
             do {
                 status = "Refreshing \(app.name ?? bundleID)..."
-                let accountID = EmberAccountManager.shared.accountID(for: bundleID)
-                let identity = try await EmberAccountManager.shared.provisionSigningIdentity(bundleID: bundleID, accountID: accountID)
+                let identity: CertificatePair
+                if let accountID = EmberAccountManager.shared.accountID(for: bundleID) {
+                    identity = try await EmberAccountManager.shared.provisionSigningIdentity(bundleID: bundleID, accountID: accountID)
+                } else if let importedIdentity = Storage.shared.getCertificate(from: app) {
+                    identity = importedIdentity
+                } else {
+                    throw EmberError.message("The imported signing certificate for \(bundleID) is unavailable. Add the matching certificate and provisioning profile in EmberSign.")
+                }
                 let oldUUIDs = Set(signedApps().compactMap(\.uuid))
                 try await sign(app, with: identity)
                 guard let refreshed = signedApps().first(where: { $0.identifier == bundleID && !oldUUIDs.contains($0.uuid ?? "") }) else {
@@ -224,8 +249,7 @@ final class EmberAutoRefreshManager: ObservableObject {
         let archive = ArchiveHandler(app: app, viewModel: viewModel)
         try await archive.move()
         let package = try await archive.archive()
-        let installer = InstallationProxy(viewModel: viewModel)
-        try await installer.install(at: package)
+        try await EmberInstallTarget.install(at: package, viewModel: viewModel)
     }
 }
 

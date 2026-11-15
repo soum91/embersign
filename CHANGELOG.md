@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Refresh repository update data automatically when opening Apps or Sources, with pull-to-refresh on the Apps list; keep the Imported apps group collapsed by default and let users expand it.
+- Include apps backed by an imported signing certificate in the existing per-app refresh workflow, preserving their selected certificate instead of silently switching to an Apple Account.
+- Let per-app re-signing target the selected remote iPhone over Wi-Fi. A paired iPhone + Watch app refresh uses the existing combined install flow when both copies are tracked with the same Apple Account. Device behavior remains unverified here.
+
 ## [v0.2.1-build.97] - 2026-11-15
 
 ## Verified changes since v0.2.1-build.95

@@ -409,6 +409,7 @@ struct EmberDeviceAppsView: View {
             disclaimerSection
         }
         .navigationTitle("Installed apps")
+        .refreshable { await model.scan() }
         .task { await model.scan() }
         .sheet(item: $selected) { app in appDetails(app) }
         .confirmationDialog("Remove \(pendingRemoval?.displayName ?? "app")?", isPresented: Binding(
@@ -478,7 +479,7 @@ struct EmberDeviceAppsView: View {
             }.disabled(model.isLoading)
             Text(model.status).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
         } footer: {
-            Text("The list comes from Apple's paired-device installation service. A working pairing tunnel is required.")
+            Text("Lists all apps returned by Apple's paired-device installation service, including sideloaded apps signed with an imported FlareStore certificate. A working pairing tunnel is required; iOS does not expose this inventory without device pairing.")
         }
     }
 
@@ -588,19 +589,25 @@ struct EmberDeviceAppsView: View {
                     }
                 }
                 if let bundleID = app.CFBundleIdentifier,
-                   accounts.account(forTeamID: app.teamIdentifier) != nil,
                    !model.hasSavedProfiles(bundleID),
                    refresh.trackedApps().contains(where: { $0.id == bundleID }) {
                     Section {
                         Button {
                             selected = nil
                             Task { _ = await refresh.refresh(bundleID: bundleID) }
-                        } label: { Label("Re-sign and reinstall this app", systemImage: "arrow.triangle.2.circlepath") }
+                        } label: {
+                            Label(EmberInstallTarget.isRemote
+                                  ? "Re-sign and install to \(EmberInstallTarget.targetName)"
+                                  : "Re-sign and reinstall this app",
+                                  systemImage: "arrow.triangle.2.circlepath")
+                        }
                             .disabled(refresh.isRunning)
                     } header: {
                         Text("Refresh signing")
                     } footer: {
-                        Text("Uses the Apple Account EmberSign linked to this app. Check its current signing identity before refreshing.")
+                        Text(accounts.account(forTeamID: app.teamIdentifier) == nil
+                             ? "Uses the signing certificate imported into EmberSign for this app. Check that its certificate and provisioning profile are still valid."
+                             : "Uses the Apple Account EmberSign linked to this app. Check its current signing identity before refreshing.")
                     }
                 }
                 if model.isFreeTeam(app.teamIdentifier) {

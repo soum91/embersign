@@ -201,6 +201,11 @@ def prepare(destination):
         }
         try await self.move()''')
 
+    sources = app / "Views/Sources/SourcesView.swift"
+    replace_once(sources,
+        '\t\t.task(id: Array(_sources)) {\n\t\t\tawait viewModel.fetchSources(_sources)\n\t\t}',
+        '\t\t.task(id: Array(_sources)) {\n\t\t\tawait viewModel.fetchSources(_sources, refresh: true)\n\t\t}')
+
     tabs = app / "Views/TabView/TabEnum.swift"
     replace_once(tabs, '\tcase sources\n', '\tcase tools\n\tcase sources\n')
     replace_once(tabs, '\t\tcase .sources:     ', '\t\tcase .tools: return "Tools"\n\t\tcase .sources:     ')
@@ -331,8 +336,54 @@ private enum EmberGitHubSource {
     (app / "Views/Settings/Installation/Tunnel & Pairing/TunnelView.swift").write_text('import SwiftUI\n\nstruct TunnelView: View {\n    var body: some View { EmberPairingView() }\n}\n')
     library = app / "Views/Library/LibraryView.swift"
     replace_once(library, '\t@StateObject var downloadManager = DownloadManager.shared', '\t@StateObject var downloadManager = DownloadManager.shared\n    @ObservedObject private var watchRefresh = EmberWatchRefreshManager.shared')
+    replace_once(library, '\t@State private var _searchText = ""', '\t@State private var _searchText = ""\n    @AppStorage("EmberSign.library.importedExpanded") private var _isImportedExpanded = false')
     replace_once(library, '\t\t\tNBListAdaptable {', '\t\t\tNBListAdaptable {\n                EmberWatchAppsSection(searchText: _searchText)')
     replace_once(library, '\t\t\t\t\t_filteredImportedApps.isEmpty\n', '\t\t\t\t\t_filteredImportedApps.isEmpty,\n                    watchRefresh.trackedApps.isEmpty\n')
+    replace_once(library, r'''					NBSection(
+						.localized("Imported"),
+						secondary: _filteredImportedApps.count.description
+					) {
+						ForEach(_filteredImportedApps, id: \.uuid) { app in
+							LibraryCellView(
+								app: app,
+								selectedInfoAppPresenting: $_selectedInfoAppPresenting,
+								selectedSigningAppPresenting: $_selectedSigningAppPresenting,
+								selectedInstallAppPresenting: $_selectedInstallAppPresenting,
+								selectedAppUUIDs: $_selectedAppUUIDs
+							)
+							.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
+						}
+					}''', r'''                    DisclosureGroup(isExpanded: $_isImportedExpanded) {
+                        ForEach(_filteredImportedApps, id: \.uuid) { app in
+                            LibraryCellView(
+                                app: app,
+                                selectedInfoAppPresenting: $_selectedInfoAppPresenting,
+                                selectedSigningAppPresenting: $_selectedSigningAppPresenting,
+                                selectedInstallAppPresenting: $_selectedInstallAppPresenting,
+                                selectedAppUUIDs: $_selectedAppUUIDs
+                            )
+                            .compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
+                        }
+                    } label: {
+                        HStack {
+                            Text(.localized("Imported"))
+                            Spacer()
+                            Text(_filteredImportedApps.count.description).foregroundStyle(.secondary)
+                        }
+                    }''')
+
+    replace_once(library, '\t\t\t.scrollDismissesKeyboard(.interactively)', '''            .scrollDismissesKeyboard(.interactively)
+            .refreshable {
+                await _checkForUpdates()
+            }''')
+    replace_once(library, '''\t\t\t.onChange(of: updateManager.isChecking) { isChecking in
+\t\t\t\t_handleUpdateCheckStateChange(isChecking)
+\t\t\t}''', '''\t\t\t.onChange(of: updateManager.isChecking) { isChecking in
+\t\t\t\t_handleUpdateCheckStateChange(isChecking)
+\t\t\t}
+            .task {
+                await _checkForUpdates()
+            }''')
     cell = app / "Views/Library/LibraryCellView.swift"
     for selection in ("selectedInstallAppPresenting", "selectedSigningAppPresenting"):
         text = cell.read_text()
