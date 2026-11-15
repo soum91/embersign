@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.95",
+          "buildVersion": "95",
+          "date": "2026-11-15T03:29:49Z",
+          "localizedDescription": "EmberSign 0.2.1 build 95. Changes: Provision WatchLink probe App Group and verify signed entitlements; Snapshot existing WatchLink group memberships after obtaining a certificate; Disambiguate Developer Portal AppGroup from EmberSign widget storage; Restore compatible Xcode dependency caches for signing-flow builds.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.95/EmberSign-build-95.ipa",
+          "size": 23589107,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.91",
           "buildVersion": "91",
           "date": "2026-11-15T00:45:28Z",
@@ -424,12 +433,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.91",
-      "versionDate": "2026-11-15T00:45:28Z",
-      "versionDescription": "EmberSign 0.2.1 build 91. Changes: Update Apple Watch apps from their repo automatically; Install and update Apple Watch apps straight from Sources repos.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.91/EmberSign-build-91.ipa",
-      "size": 23563743,
-      "buildVersion": "91"
+      "version": "0.2.95",
+      "versionDate": "2026-11-15T03:29:49Z",
+      "versionDescription": "EmberSign 0.2.1 build 95. Changes: Provision WatchLink probe App Group and verify signed entitlements; Snapshot existing WatchLink group memberships after obtaining a certificate; Disambiguate Developer Portal AppGroup from EmberSign widget storage; Restore compatible Xcode dependency caches for signing-flow builds.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.95/EmberSign-build-95.ipa",
+      "size": 23589107,
+      "buildVersion": "95"
     }
   ],
   "news": []
