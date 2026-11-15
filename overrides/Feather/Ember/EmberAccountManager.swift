@@ -711,7 +711,7 @@ final class EmberAccountManager: ObservableObject {
         if let probeGroupID {
             status = "Preparing WatchLink's dedicated probe App Group…"
             var groups = try await portal.fetchAppGroups(for: team, session: account.auth.session)
-            let probeGroup: AppGroup
+            let probeGroup: SideSign.AppGroup
             if let existing = groups.first(where: { $0.identifier == probeGroupID }) {
                 probeGroup = existing
             } else {
