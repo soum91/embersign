@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.2.1-build.98] - 2026-11-15
+
+## Verified changes since v0.2.1-build.97
+
+- Refresh Apps and Sources and preserve signing identity ([`8e46ccdd`](https://github.com/soum91/embersign/commit/8e46ccdd74aa78f2d6fba1b76f625ea9bdeea6cd); `overrides/Feather/Ember/EmberAutoRefresh.swift`, `overrides/Feather/Ember/EmberDeviceApps.swift`, `scripts/prepare.py`)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.97...v0.2.1-build.98)
+
 ## Unreleased
 
 - Refresh repository update data automatically when opening Apps or Sources, with pull-to-refresh on the Apps list; keep the Imported apps group collapsed by default and let users expand it.
