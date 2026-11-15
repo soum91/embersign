@@ -59,6 +59,8 @@ jobs:
         with:
           path: build/DerivedData
           key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-${{ hashFiles('upstream.lock.json', 'project.yml', 'overrides/**', 'scripts/prepare.py', 'pairing-native/**', 'jit-integration/**') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-xcode26.3-build-
       - name: Build and package IPA
         run: bash scripts/build.sh
       - name: Preserve compiled dependencies
