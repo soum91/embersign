@@ -22,6 +22,11 @@ struct EmberWatchTrackedApp: Codable {
     var expirationEstimated: Bool
     var lastInstalled: Date
     var sourceURL: String
+    /// Feed app and build this install came from. The IPA's own bundle ID
+    /// (e.g. dev.watchlink.companion) and CFBundleVersion can differ from the
+    /// repo's source.json entry, so update checks match on these instead.
+    var feedBundleID: String? = nil
+    var feedBuild: String? = nil
 }
 
 struct EmberWatchRelease: Decodable {
@@ -52,6 +57,7 @@ final class EmberWatchRefreshManager: ObservableObject {
 
     @Published private(set) var tracked: EmberWatchTrackedApp?
     @Published private(set) var latestRelease: EmberWatchRelease?
+    private var latestFeedBundleID: String?
     @Published private(set) var isWorking = false
     @Published private(set) var isChecking = false
     @Published var status = "Install a Watch IPA once with EmberSign to save it for future refreshes."
@@ -96,8 +102,21 @@ final class EmberWatchRefreshManager: ObservableObject {
 
     func refreshIfNeeded(force: Bool = false) async -> EmberWatchRefreshOutcome {
         guard (enabled || force), let tracked else { return .skipped }
-        guard force || due else { return .skipped }
         guard !isWorking else { return .skipped }
+        if !tracked.sourceURL.isEmpty, EmberAccountManager.shared.selectedAccountID == tracked.accountID {
+            await checkForUpdates(sourceURL: tracked.sourceURL)
+            if latestRelease != nil {
+                do {
+                    try await installLatestFromGitHub(sourceURL: tracked.sourceURL)
+                    return .success
+                } catch {
+                    status = "Watch update from repo failed: \(error.localizedDescription)"
+                    EmberErrorCenter.shared.record(error, operation: "Watch repo update")
+                    return .failed
+                }
+            }
+        }
+        guard force || due else { return .skipped }
         guard FileManager.default.fileExists(atPath: cachedIPA.path) else {
             status = "The saved unsigned IPA is missing. Reinstall from GitHub once to track it again."
             return .failed
@@ -121,21 +140,25 @@ final class EmberWatchRefreshManager: ObservableObject {
         isChecking = true
         defer { isChecking = false }
         latestRelease = nil
+        latestFeedBundleID = nil
         do {
             let source = try Self.validatedSource(sourceURL)
             let (data, _) = try await URLSession.shared.data(from: source)
             guard data.count <= 1_048_576 else { throw EmberError.message("The GitHub source exceeds 1 MB.") }
             let feed = try JSONDecoder().decode(EmberWatchFeed.self, from: data)
-            let bundle = tracked?.bundleID ?? "com.soum91.wristpane"
-            guard let app = feed.apps.first(where: { $0.bundleIdentifier == bundle }),
+            let wanted = [tracked?.feedBundleID, tracked?.bundleID, "com.soum91.wristpane"].compactMap { $0 }
+            let matched = wanted.lazy.compactMap { id in feed.apps.first(where: { $0.bundleIdentifier == id }) }.first
+                ?? (feed.apps.count == 1 ? feed.apps[0] : nil)
+            guard let app = matched,
                   let release = app.versions?.max(by: { Self.isNewer($1, than: $0) }) else {
-                throw EmberError.message("No Watch IPA release found for \(bundle) in this source.")
+                throw EmberError.message("No Watch IPA release found for \(wanted.first ?? "the tracked app") in this source.")
             }
+            latestFeedBundleID = app.bundleIdentifier
             guard try Self.validatedDownload(release.downloadURL) != nil else {
                 throw EmberError.message("The source has an invalid release download URL.")
             }
             if let tracked, !Self.isNewer(release, than: tracked) {
-                status = "WristPane is up to date (build \(tracked.build))."
+                status = "Watch app is up to date (build \(tracked.feedBuild ?? tracked.build))."
             } else {
                 latestRelease = release
                 status = "GitHub has \(release.version) (build \(release.buildVersion)). Ready to download and sign."
@@ -164,11 +187,13 @@ final class EmberWatchRefreshManager: ObservableObject {
         let copy = FileManager.default.temporaryDirectory.appendingPathComponent("EmberWatchGitHub-\(UUID()).ipa")
         try FileManager.default.copyItem(at: download, to: copy)
         defer { try? FileManager.default.removeItem(at: copy) }
-        try await installAndTrack(file: copy, sourceURL: sourceURL)
+        try await installAndTrack(file: copy, sourceURL: sourceURL,
+                                  feedBundleID: latestFeedBundleID, feedBuild: release.buildVersion)
         latestRelease = nil
     }
 
-    func installAndTrack(file: URL, sourceURL: String) async throws {
+    func installAndTrack(file: URL, sourceURL: String,
+                         feedBundleID: String? = nil, feedBuild: String? = nil) async throws {
         guard !isWorking else { throw EmberError.message("Another Watch operation is already running.") }
         guard let account = EmberAccountManager.shared.selectedAccount else {
             throw EmberError.message("Sign into an Apple Account in EmberSign first.")
@@ -236,7 +261,9 @@ final class EmberWatchRefreshManager: ObservableObject {
                                           build: build, accountID: account.id,
                                           expiresAt: exactExpiration ?? estimatedExpiration,
                                           expirationEstimated: exactExpiration == nil,
-                                          lastInstalled: Date(), sourceURL: sourceURL)
+                                          lastInstalled: Date(), sourceURL: sourceURL,
+                                          feedBundleID: feedBundleID ?? tracked?.feedBundleID,
+                                          feedBuild: feedBuild ?? (file == cachedIPA ? tracked?.feedBuild : nil))
         do {
             try remember(input, record: record)
             progress("Watch installed and saved for refresh (build \(build)).")
@@ -285,7 +312,7 @@ final class EmberWatchRefreshManager: ObservableObject {
     }
 
     private static func isNewer(_ candidate: EmberWatchRelease, than current: EmberWatchTrackedApp) -> Bool {
-        compareVersions(candidate.buildVersion, current.build) > 0
+        compareVersions(candidate.buildVersion, current.feedBuild ?? current.build) > 0
     }
 
     private static func compareVersions(_ lhs: String, _ rhs: String) -> Int {
@@ -514,6 +541,7 @@ struct EmberWatchSupportView: View {
                         if watchRefresh.isChecking { ProgressView() }
                     }
                 }.disabled(watchRefresh.isChecking || watchRefresh.isWorking)
+                .task { await watchRefresh.checkForUpdates(sourceURL: feedURL) }
 
                 if let release = watchRefresh.latestRelease {
                     Text("Available: \(release.version) (build \(release.buildVersion))")

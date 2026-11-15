@@ -58,3 +58,18 @@ class ZsignNestedSealOrderTests(unittest.TestCase):
         source = Path("scripts/prepare.py").read_text()
         self.assertIn("Write the matching profile first, then seal.", source)
         self.assertIn('ZFile::CreateFolderV("%s/_CodeSignature", strBaseFolder.c_str());', source)
+
+
+class WatchRepoUpdateTests(unittest.TestCase):
+    def test_repo_updates_match_feed_app_not_ipa_bundle(self):
+        source = Path("overrides/Feather/Ember/EmberWatchSupportView.swift").read_text()
+        self.assertIn("var feedBundleID: String? = nil", source)
+        self.assertIn("tracked?.feedBundleID, tracked?.bundleID", source)
+        self.assertIn("current.feedBuild ?? current.build", source)
+        self.assertIn("feedBundleID: latestFeedBundleID, feedBuild: release.buildVersion", source)
+
+    def test_background_refresh_installs_newer_repo_build(self):
+        source = Path("overrides/Feather/Ember/EmberWatchSupportView.swift").read_text()
+        start = source.index("func refreshIfNeeded")
+        body = source[start:source.index("func checkForUpdates")]
+        self.assertLess(body.index("installLatestFromGitHub"), body.index("guard force || due"))
