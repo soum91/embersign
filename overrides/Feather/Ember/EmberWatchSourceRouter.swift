@@ -74,7 +74,11 @@ enum EmberWatchSourceRouter {
         do {
             try FileManager.default.copyItem(at: ipa, to: copy)
         } catch {
-            DispatchQueue.main.async { completion(error) }
+            Task { @MainActor in
+                EmberErrorCenter.shared.record(error, operation: "Prepare Watch install")
+                present(title: "Watch install failed", message: error.localizedDescription)
+                completion(error)
+            }
             return
         }
         Task { @MainActor in
@@ -92,7 +96,7 @@ enum EmberWatchSourceRouter {
             } catch {
                 EmberErrorCenter.shared.record(error, operation: "Watch install from Sources")
                 present(title: "\(name) Watch install failed",
-                        message: "\(error.localizedDescription)\n\nWatch apps from Sources are signed through Tools > Apple Watch. Keep LocalDevVPN connected, find the paired Watch there once, and keep the Watch unlocked.")
+                        message: "\(error.localizedDescription)\n\nKeep LocalDevVPN connected and the paired Watch unlocked and nearby. Check that your saved pairing record is available, then retry from Apps or Sources.")
                 completion(error)
             }
         }
