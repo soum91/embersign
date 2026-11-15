@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.2.1-build.97] - 2026-11-15
+
+## Verified changes since v0.2.1-build.95
+
+- Show Watch preparation errors and retry guidance in Apps and Sources ([`a4464999`](https://github.com/soum91/embersign/commit/a44649995a5a6398bcfe7b6d5a1cbf177bec3781); `overrides/Feather/Ember/EmberWatchSourceRouter.swift`)
+- Update and re-sign Watch companions directly from Sources and Apps ([`29c95bdd`](https://github.com/soum91/embersign/commit/29c95bdd0120b136c775a8cce7c1020af911daaf); `Tests/WatchLinkProbeTests.swift`, `Tests/test_watch_native_safety.py`, `overrides/Feather/Ember/Core/EmberWatchBundleInspector.swift`, and 4 more)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.95...v0.2.1-build.97)
+
 ## Unreleased
 
 - Recognize both legacy `Watch/` and modern `PlugIns/` companions in Sources and Apps update downloads. Validate companion metadata before routing to per-target iPhone + Watch provisioning and installation.
