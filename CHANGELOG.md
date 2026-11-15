@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.2.1-build.91] - 2026-11-15
+
+## Verified changes since v0.2.1-build.89
+
+- Install and update Apple Watch apps straight from Sources repos ([`ee7d9c04`](https://github.com/soum91/embersign/commit/ee7d9c048afe11fb2d30b63d19d4613499ce8370); `Tests/test_watch_native_safety.py`, `overrides/Feather/Ember/EmberWatchSourceRouter.swift`, `overrides/Feather/Ember/EmberWatchSupportView.swift`, and 1 more)
+- Update Apple Watch apps from their repo automatically ([`e2b974c0`](https://github.com/soum91/embersign/commit/e2b974c0071ae57f5c5c2f45160e186fab942a1a); `Tests/test_watch_native_safety.py`, `overrides/Feather/Ember/EmberWatchSupportView.swift`)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.89...v0.2.1-build.91)
+
 ## [v0.2.1-build.89] - 2026-11-14
 
 ## Verified changes since v0.2.1-build.88
