@@ -689,6 +689,22 @@ final class EmberAccountManager: ObservableObject {
             registeredAppIDs[id] = appID
         }
 
+        let certificates = try await portal.fetchCertificates(for: team, session: account.auth.session)
+        var p12 = account.signingP12
+        if p12 == nil || account.signingCertificateID == nil ||
+           !certificates.contains(where: { $0.identifier == account.signingCertificateID }) {
+            status = "Creating development signing certificate…"
+            let store = try await portal.addCertificate(
+                machineName: "EmberSign Apple Watch", to: team, session: account.auth.session
+            )
+            p12 = try store.exportP12(password: "")
+            account.signingP12 = p12
+            account.signingCertificateID = store.certificate.identifier
+            try persist(account)
+            upsert(account)
+        }
+        guard let p12 else { throw EmberError.message("Could not get a development certificate.") }
+
         // Only WatchLink's exact two-target package requests this disposable group.
         // Preserve memberships already authorized by each target's current profile.
         let probeGroupID = try EmberWatchLinkProbe.groupID(plan: plan, teamID: team.identifier)
@@ -708,15 +724,12 @@ final class EmberAccountManager: ObservableObject {
                 guard var appID = registeredAppIDs[target.bundleID] else {
                     throw EmberWatchBundleError.missingProfile(target.bundleID)
                 }
-                var previousGroups: [String] = []
-                if appID.features[.appGroups]?.lowercased() == "true" {
-                    let previous = try await portal.downloadProvisioningProfile(
-                        for: appID, isTeamProfile: true,
-                        deviceType: target.kind == .iphoneApp ? .iPhone : .appleWatch,
-                        team: team, session: account.auth.session)
-                    previousGroups = try EmberWatchLinkProbe.groups(
-                        in: EmberWatchLinkProbe.profileEntitlements(previous.data))
-                }
+                let previous = try await portal.downloadProvisioningProfile(
+                    for: appID, isTeamProfile: true,
+                    deviceType: target.kind == .iphoneApp ? .iPhone : .appleWatch,
+                    team: team, session: account.auth.session)
+                let previousGroups = try EmberWatchLinkProbe.groups(
+                    in: EmberWatchLinkProbe.profileEntitlements(previous.data))
                 var memberships = [probeGroup]
                 for identifier in previousGroups where identifier != probeGroupID {
                     guard let existing = groups.first(where: { $0.identifier == identifier }) else {
@@ -730,22 +743,6 @@ final class EmberAccountManager: ObservableObject {
                     memberships, to: appID, team: team, session: account.auth.session)
             }
         }
-
-        let certificates = try await portal.fetchCertificates(for: team, session: account.auth.session)
-        var p12 = account.signingP12
-        if p12 == nil || account.signingCertificateID == nil ||
-           !certificates.contains(where: { $0.identifier == account.signingCertificateID }) {
-            status = "Creating development signing certificate…"
-            let store = try await portal.addCertificate(
-                machineName: "EmberSign Apple Watch", to: team, session: account.auth.session
-            )
-            p12 = try store.exportP12(password: "")
-            account.signingP12 = p12
-            account.signingCertificateID = store.certificate.identifier
-            try persist(account)
-            upsert(account)
-        }
-        guard let p12 else { throw EmberError.message("Could not get a development certificate.") }
 
         var profiles: [String: Data] = [:]
         for target in plan.targets {
