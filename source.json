@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.97",
+          "buildVersion": "97",
+          "date": "2026-11-15T03:47:39Z",
+          "localizedDescription": "EmberSign 0.2.1 build 97. Changes: Update and re-sign Watch companions directly from Sources and Apps; Show Watch preparation errors and retry guidance in Apps and Sources.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.97/EmberSign-build-97.ipa",
+          "size": 23599197,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.95",
           "buildVersion": "95",
           "date": "2026-11-15T03:29:49Z",
@@ -433,12 +442,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.95",
-      "versionDate": "2026-11-15T03:29:49Z",
-      "versionDescription": "EmberSign 0.2.1 build 95. Changes: Provision WatchLink probe App Group and verify signed entitlements; Snapshot existing WatchLink group memberships after obtaining a certificate; Disambiguate Developer Portal AppGroup from EmberSign widget storage; Restore compatible Xcode dependency caches for signing-flow builds.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.95/EmberSign-build-95.ipa",
-      "size": 23589107,
-      "buildVersion": "95"
+      "version": "0.2.97",
+      "versionDate": "2026-11-15T03:47:39Z",
+      "versionDescription": "EmberSign 0.2.1 build 97. Changes: Update and re-sign Watch companions directly from Sources and Apps; Show Watch preparation errors and retry guidance in Apps and Sources.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.97/EmberSign-build-97.ipa",
+      "size": 23599197,
+      "buildVersion": "97"
     }
   ],
   "news": []
