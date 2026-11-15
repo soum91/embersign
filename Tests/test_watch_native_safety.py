@@ -61,15 +61,31 @@ class ZsignNestedSealOrderTests(unittest.TestCase):
 
 
 class WatchRepoUpdateTests(unittest.TestCase):
-    def test_repo_updates_match_feed_app_not_ipa_bundle(self):
-        source = Path("overrides/Feather/Ember/EmberWatchSupportView.swift").read_text()
-        self.assertIn("var feedBundleID: String? = nil", source)
-        self.assertIn("tracked?.feedBundleID, tracked?.bundleID", source)
-        self.assertIn("current.feedBuild ?? current.build", source)
-        self.assertIn("feedBundleID: latestFeedBundleID, feedBuild: release.buildVersion", source)
+    def setUp(self):
+        self.source = Path("overrides/Feather/Ember/EmberWatchSupportView.swift").read_text()
 
-    def test_background_refresh_installs_newer_repo_build(self):
-        source = Path("overrides/Feather/Ember/EmberWatchSupportView.swift").read_text()
-        start = source.index("func refreshIfNeeded")
-        body = source[start:source.index("func checkForUpdates")]
-        self.assertLess(body.index("installLatestFromGitHub"), body.index("guard force || due"))
+    def test_tracks_each_watch_app_separately(self):
+        self.assertIn("@Published private(set) var trackedApps: [EmberWatchTrackedApp]", self.source)
+        self.assertIn("private static func cachedIPA(for bundleID: String) -> URL", self.source)
+        self.assertNotIn("The selected IPA is for another app", self.source)
+        self.assertIn("legacyTrackingKey", self.source)
+
+    def test_repo_updates_match_feed_app_not_ipa_bundle(self):
+        self.assertIn("var feedBundleID: String? = nil", self.source)
+        self.assertIn("[candidate.feedBundleID, candidate.bundleID]", self.source)
+        self.assertIn("current.feedBuild ?? current.build", self.source)
+        self.assertIn("feedBundleID: feedBundleID, feedBuild: release.buildVersion", self.source)
+
+    def test_background_refresh_installs_newer_repo_build_first(self):
+        body = self.source[self.source.index("func refresh(_ app"):self.source.index("func checkForUpdates")]
+        self.assertLess(body.index("installLatestFromGitHub"), body.index("guard force || isDue(app)"))
+
+
+class WatchSourcesRoutingTests(unittest.TestCase):
+    def test_sources_downloads_with_watch_app_use_watch_pipeline(self):
+        prepare = Path("scripts/prepare.py").read_text()
+        self.assertIn("EmberWatchSourceRouter.shouldRoute(ipa, download: download, provenance: emberProvenance)", prepare)
+        router = Path("overrides/Feather/Ember/EmberWatchSourceRouter.swift").read_text()
+        self.assertIn('parts[2] == "Watch"', router)
+        self.assertIn("installFromSource(file: copy, provenance: provenance)", router)
+        self.assertIn("download?.onlyArchiving != true", router)

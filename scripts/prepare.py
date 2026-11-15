@@ -137,6 +137,18 @@ def prepare(destination):
         '\t\tisRestartInProgress = true\n\t\trestartLock.lock()\n\t\tdefer { restartLock.unlock() }\n\t\t\n\t\tguard let pairingFile = getPairingRsd() else {',
         '\t\tisRestartInProgress = true\n\t\trestartLock.lock()\n\t\tdefer { restartLock.unlock(); isRestartInProgress = false }\n\t\t\n\t\tguard let pairingFile = getPairingRsd() else {')
 
+    # Sources downloads that embed an Apple Watch app go through EmberSign's
+    # Watch pipeline (separate profiles, iPhone + watchOS install, repo
+    # tracking). Feather's single-profile Library import cannot sign them.
+    replace_once(app / "Utilities/FR.swift",
+        '\t\tcompletion: @escaping (Error?) -> Void\n\t) {\n\t\tTask.detached {\n\t\t\tlet handler = AppFileHandler(',
+        '\t\tcompletion: @escaping (Error?) -> Void\n\t) {\n'
+        '\t\tif let emberProvenance = sourceProvenance ?? download?.sourceProvenance,\n'
+        '\t\t   EmberWatchSourceRouter.shouldRoute(ipa, download: download, provenance: emberProvenance) {\n'
+        '\t\t\tEmberWatchSourceRouter.route(ipa, provenance: emberProvenance, completion: completion)\n'
+        '\t\t\treturn\n'
+        '\t\t}\n'
+        '\t\tTask.detached {\n\t\t\tlet handler = AppFileHandler(')
     options = app / "Backend/Observable/OptionsManager.swift"
     replace_once(options, "struct Options: Codable, Equatable {", "struct Options: Codable, Equatable {\n\t/// Prepare debugger entitlements using an authorized development profile.\n\tvar prepareForJIT: Bool = false")
     view = app / "Views/Signing/Shared/SigningOptionsView.swift"
