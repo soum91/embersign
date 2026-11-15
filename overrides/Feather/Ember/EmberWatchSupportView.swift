@@ -1018,6 +1018,28 @@ private func emberSignWatchIPA(
         throw EmberError.message("Zsign rejected the iPhone, Watch or widget signing targets.")
     }
     try emberVerifySignedWatch(host: host, plan: plan)
+    // Zsign uses each profile's entitlements by default. Confirm it retained the
+    // provisioned probe group on every architecture before packaging/installing.
+    if plan.targets.first?.bundleID == "dev.watchlink.companion" {
+        for target in plan.targets {
+            guard let profile = identity.profiles[target.bundleID] else {
+                throw EmberWatchBundleError.missingProfile(target.bundleID)
+            }
+            let groups = try EmberWatchLinkProbe.groups(in: EmberWatchLinkProbe.profileEntitlements(profile))
+            guard let group = groups.first(where: { $0.hasSuffix(".watchlink.probe") }) else {
+                throw EmberWatchLinkProbe.Failure.missingGroup
+            }
+            let bundle = host.appendingPathComponent(target.relativePath)
+            let metadata = try Data(contentsOf: bundle.appendingPathComponent("Info.plist"))
+            guard let info = try PropertyListSerialization.propertyList(from: metadata, format: nil) as? [String: Any],
+                  let name = info["CFBundleExecutable"] as? String,
+                  !name.isEmpty, !name.contains("/"), name != ".", name != ".." else {
+                throw EmberWatchLinkProbe.Failure.invalidExecutable
+            }
+            try EmberWatchLinkProbe.requireSignedGroup(group,
+                executable: Data(contentsOf: bundle.appendingPathComponent(name), options: .mappedIfSafe))
+        }
+    }
 
     let contents = root.appendingPathComponent("contents", isDirectory: true)
     let signed = root.appendingPathComponent("EmberWatch-signed.ipa")

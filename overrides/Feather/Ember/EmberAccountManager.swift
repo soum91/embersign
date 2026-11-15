@@ -689,6 +689,48 @@ final class EmberAccountManager: ObservableObject {
             registeredAppIDs[id] = appID
         }
 
+        // Only WatchLink's exact two-target package requests this disposable group.
+        // Preserve memberships already authorized by each target's current profile.
+        let probeGroupID = try EmberWatchLinkProbe.groupID(plan: plan, teamID: team.identifier)
+        if let probeGroupID {
+            status = "Preparing WatchLink's dedicated probe App Group…"
+            var groups = try await portal.fetchAppGroups(for: team, session: account.auth.session)
+            let probeGroup: AppGroup
+            if let existing = groups.first(where: { $0.identifier == probeGroupID }) {
+                probeGroup = existing
+            } else {
+                probeGroup = try await portal.addAppGroup(
+                    name: "WatchLink Probe", groupIdentifier: probeGroupID,
+                    team: team, session: account.auth.session)
+                groups.append(probeGroup)
+            }
+            for target in plan.targets {
+                guard var appID = registeredAppIDs[target.bundleID] else {
+                    throw EmberWatchBundleError.missingProfile(target.bundleID)
+                }
+                var previousGroups: [String] = []
+                if appID.features[.appGroups]?.lowercased() == "true" {
+                    let previous = try await portal.downloadProvisioningProfile(
+                        for: appID, isTeamProfile: true,
+                        deviceType: target.kind == .iphoneApp ? .iPhone : .appleWatch,
+                        team: team, session: account.auth.session)
+                    previousGroups = try EmberWatchLinkProbe.groups(
+                        in: EmberWatchLinkProbe.profileEntitlements(previous.data))
+                }
+                var memberships = [probeGroup]
+                for identifier in previousGroups where identifier != probeGroupID {
+                    guard let existing = groups.first(where: { $0.identifier == identifier }) else {
+                        throw EmberError.message("Cannot preserve an existing App Group membership. WatchLink provisioning stopped.")
+                    }
+                    memberships.append(existing)
+                }
+                appID.features[.appGroups] = "true"
+                appID = try await portal.updateAppID(appID, team: team, session: account.auth.session)
+                registeredAppIDs[target.bundleID] = try await portal.assignAppGroups(
+                    memberships, to: appID, team: team, session: account.auth.session)
+            }
+        }
+
         let certificates = try await portal.fetchCertificates(for: team, session: account.auth.session)
         var p12 = account.signingP12
         if p12 == nil || account.signingCertificateID == nil ||
@@ -726,6 +768,9 @@ final class EmberAccountManager: ObservableObject {
             }
             guard profile.bundleIdentifier == id else {
                 throw EmberError.message("Apple returned a mismatched profile for \(id).")
+            }
+            if let probeGroupID {
+                try EmberWatchLinkProbe.requireGroup(probeGroupID, profile: profile.data)
             }
             profiles[id] = profile.data
         }

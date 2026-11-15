@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Provision a stable, team-specific disposable App Group for the exact WatchLink iPhone and Watch bundle IDs. Enable the capability, preserve existing authorized group memberships, assign the group, and download fresh per-target profiles. Other Watch apps retain their existing provisioning flow.
+- Stop WatchLink signing if Apple omits the probe group; inspect the resulting signed entitlement slot in every executable architecture before packaging to catch groups stripped by the signer. This checks consistency, not cryptographic validity or sandbox escape support.
+- Add mandatory fixture tests for profile authorization, package targeting, thin/fat executable entitlement retention, and malformed metadata. Physical Watch execution remains unverified; multi-pairing is not implemented.
+
 ## [v0.2.1-build.91] - 2026-11-15
 
 ## Verified changes since v0.2.1-build.89

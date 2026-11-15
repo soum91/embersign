@@ -34,6 +34,8 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_26.3.0.app/Contents/Developer
           xcodebuild -version
           xcrun swift --version
+      - name: Verify WatchLink probe provisioning policies
+        run: swift test --filter WatchLinkProbeTests
       - name: Test pairing and entitlement policies
         continue-on-error: true
         run: swift test
