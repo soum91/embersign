@@ -152,3 +152,46 @@ final class EmberCoreTests: XCTestCase {
         try plist(info).write(to: directory.appendingPathComponent("Info.plist"))
     }
 }
+
+
+// Identity and Watch companion metadata must change together before signing.
+final class EmberIPAIdentityPolicyTests: XCTestCase {
+    func testRemapsNestedWatchIdentifiersWithoutChangingOtherNamespaces() throws {
+        let edit = EmberIPAIdentityEdit(originalID: "com.example.HermesEnabler",
+                                        newID: "dev.soum91.hermesenabler",
+                                        displayName: "Hermes", version: "1.2", build: "6",
+                                        minimumIOS: "17.0")
+        let host: [String: Any] = ["CFBundleIdentifier": edit.originalID]
+        let watch: [String: Any] = [
+            "CFBundleIdentifier": "com.example.HermesEnabler.watchkitapp",
+            "WKCompanionAppBundleIdentifier": edit.originalID
+        ]
+        let extensionInfo: [String: Any] = [
+            "CFBundleIdentifier": "com.example.HermesEnabler.watchkitapp.widgets",
+            "NSExtension": ["NSExtensionAttributes":
+                ["WKAppBundleIdentifier": "com.example.HermesEnabler.watchkitapp"]]
+        ]
+        let newHost = try EmberIPAIdentityPolicy.editedInfo(host, edit: edit, isHost: true)
+        let newWatch = try EmberIPAIdentityPolicy.editedInfo(watch, edit: edit, isHost: false)
+        let newExtension = try EmberIPAIdentityPolicy.editedInfo(extensionInfo, edit: edit, isHost: false)
+        XCTAssertEqual(newHost["CFBundleIdentifier"] as? String, edit.newID)
+        XCTAssertEqual(newWatch["CFBundleIdentifier"] as? String, "dev.soum91.hermesenabler.watchkitapp")
+        XCTAssertEqual(newWatch["WKCompanionAppBundleIdentifier"] as? String, edit.newID)
+        XCTAssertEqual((newExtension["NSExtension"] as? [String: Any])?["NSExtensionAttributes"]
+                      as? [String: String], ["WKAppBundleIdentifier": "dev.soum91.hermesenabler.watchkitapp"])
+        XCTAssertEqual(EmberIPAIdentityPolicy.mappedIdentifier("com.vendor.other",
+                       from: edit.originalID, to: edit.newID), "com.vendor.other")
+    }
+
+    func testValidationRejectsInvalidBundleIDsAndSchemes() {
+        let invalid = EmberIPAIdentityEdit(originalID: "com.example.app",
+                                           newID: "com.example.invalid id",
+                                           displayName: "New", version: "1", build: "2", minimumIOS: "17")
+        XCTAssertThrowsError(try EmberIPAIdentityPolicy.validate(invalid))
+        let badScheme = EmberIPAIdentityEdit(originalID: "com.example.app",
+                                            newID: "com.example.changed", displayName: "New",
+                                            version: "1", build: "2", minimumIOS: "",
+                                            replaceURLSchemes: true, urlSchemes: "123bad")
+        XCTAssertThrowsError(try EmberIPAIdentityPolicy.validate(badScheme))
+    }
+}
