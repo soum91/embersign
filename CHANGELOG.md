@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.2.1-build.105] - 2026-11-25
+
+## Verified changes since v0.2.1-build.98
+
+- fix(ipa): keep staged files through asynchronous library import and invalidate stale edits ([`63832d72`](https://github.com/soum91/embersign/commit/63832d7214067cf9ad6ae7e3ae2ff4a00ebea3d9); `overrides/Feather/Ember/EmberIPAStudioView.swift`)
+- feat(watch): link universal IPA editor from Watch provisioning screen ([`f2e952c2`](https://github.com/soum91/embersign/commit/f2e952c2d9cf2c62b2617452157f85b0bd8030f0); `overrides/Feather/Ember/EmberWatchSupportView.swift`)
+- feat(ipa): expose unified import/edit flow and document pre-signing limitations ([`31e4e3a7`](https://github.com/soum91/embersign/commit/31e4e3a738c01b2a148fbe2ff87d8780c9ae99b4); `Tests/EmberCoreTests.swift`)
+- feat(ipa): expose unified import/edit flow and document pre-signing limitations ([`cc824d21`](https://github.com/soum91/embersign/commit/cc824d2137e142831ef453526769abc7dc4f061f); `overrides/Feather/Ember/EmberToolsView.swift`)
+- feat(ipa): add one import and metadata editor for iPhone and Watch packages ([`fb784c21`](https://github.com/soum91/embersign/commit/fb784c2140f74dde0847fedf8ebe4511cc9ea88c); `overrides/Feather/Ember/EmberIPAStudioView.swift`)
+- feat(ipa): validate and remap iPhone and Watch package identities before signing ([`8e9d702d`](https://github.com/soum91/embersign/commit/8e9d702d7e272d1721439edbcfbd1d2f2fef82aa); `overrides/Feather/Ember/Core/EmberIPAIdentityPolicy.swift`)
+
+[Inspect exact code changes](https://github.com/soum91/embersign/compare/v0.2.1-build.98...v0.2.1-build.105)
+
 ## Unreleased
 
 - Add universal IPA Studio to Tools: import an iPhone IPA or nested Watch companion, inspect identity metadata, edit display name, bundle identifier, version/build, minimum iOS and URL schemes before re-signing. Route ordinary packages into the existing Apps certificate/Apple Account signer; route Watch packages through separate iPhone/Watch/widget provisioning. Preserve nested companion identifier references when changing the host ID. This is a new workflow and requires physical-device testing.
