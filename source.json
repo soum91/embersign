@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.105",
+          "buildVersion": "105",
+          "date": "2026-11-25T06:59:11Z",
+          "localizedDescription": "EmberSign 0.2.1 build 105. Changes: feat(ipa): validate and remap iPhone and Watch package identities before signing; feat(ipa): add one import and metadata editor for iPhone and Watch packages; feat(ipa): expose unified import/edit flow and document pre-signing limitations; feat(watch): link universal IPA editor from Watch provisioning screen; fix(ipa): keep staged files through asynchronous library import and invalidate stale edits.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.105/EmberSign-build-105.ipa",
+          "size": 23676944,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.98",
           "buildVersion": "98",
           "date": "2026-11-15T04:59:28Z",
@@ -451,12 +460,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.98",
-      "versionDate": "2026-11-15T04:59:28Z",
-      "versionDescription": "EmberSign 0.2.1 build 98. Changes: Refresh Apps and Sources and preserve signing identity.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.98/EmberSign-build-98.ipa",
-      "size": 23608390,
-      "buildVersion": "98"
+      "version": "0.2.105",
+      "versionDate": "2026-11-25T06:59:11Z",
+      "versionDescription": "EmberSign 0.2.1 build 105. Changes: feat(ipa): validate and remap iPhone and Watch package identities before signing; feat(ipa): add one import and metadata editor for iPhone and Watch packages; feat(ipa): expose unified import/edit flow and document pre-signing limitations; feat(watch): link universal IPA editor from Watch provisioning screen; fix(ipa): keep staged files through asynchronous library import and invalidate stale edits.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.105/EmberSign-build-105.ipa",
+      "size": 23676944,
+      "buildVersion": "105"
     }
   ],
   "news": []
