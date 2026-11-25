@@ -62,6 +62,13 @@ struct EmberToolsView: View {
                     }
                 }
                 Section("Signing and tweaks") {
+                    NavigationLink { EmberIPAStudioView() } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("IPA Studio — import and customize", systemImage: "slider.horizontal.3")
+                            Text("Edit IDs, name, version, minimum iOS and URL schemes before iPhone or Watch signing")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     NavigationLink { EmberIOSExtensionsView() } label: {
                         Label("iOS keyboards & app extensions", systemImage: "keyboard")
                     }
