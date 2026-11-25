@@ -566,6 +566,11 @@ struct EmberWatchSupportView: View {
             }
 
             Section("Sign and install Watch IPA") {
+                NavigationLink { EmberIPAStudioView() } label: {
+                    Label("Import and edit IPA before signing", systemImage: "slider.horizontal.3")
+                }
+                Text("For any Watch app, edit an unavailable Bundle ID here before requesting Apple provisioning. The iPhone, Watch and widget identifiers are remapped together.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 if EmberAccountManager.shared.accounts.isEmpty {
                     NavigationLink {
                         EmberAccountsView()
@@ -596,7 +601,7 @@ struct EmberWatchSupportView: View {
                     }
                     Text("This route requests a development certificate through your selected Apple Account. It does not require a certificate in the imported Certificates list.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("First tap Find paired Apple Watch, then choose the unsigned WristPane IPA. EmberSign will request three development profiles, sign the nested bundles, install the iPhone app, then send the Watch app to watchOS.")
+                    Text("Find the paired Apple Watch, then choose an unsigned IPA containing its companion. EmberSign requests a separate development profile for each nested signing target, signs them, installs the iPhone app, then transfers the Watch app.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
