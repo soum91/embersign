@@ -310,6 +310,10 @@ struct EmberIPAStudioView: View {
             }
         }
         .navigationTitle("IPA Studio")
+        .onChange(of: name + "|" + bundleID + "|" + version + "|" + build + "|" + minimumIOS + "|" + schemes + "|" + String(replaceSchemes)) { _ in
+            if let preparedIPA { try? FileManager.default.removeItem(at: preparedIPA) }
+            preparedIPA = nil
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
             do {
                 guard let url = try result.get().first else { return }
@@ -373,13 +377,34 @@ struct EmberIPAStudioView: View {
 
     private func importToLibrary(_ file: URL) {
         busy = true
-        defer { busy = false }
+        status = "Importing edited IPA into Apps…"
+        let staged = FileManager.default.temporaryDirectory.appendingPathComponent("EmberIPAImport-" + UUID().uuidString + ".ipa")
         do {
-            let id = "EmberIPAStudio-" + UUID().uuidString
-            let download = DownloadManager.shared.startArchive(from: file, id: id)
-            try DownloadManager.shared.handlePachageFile(url: file, dl: download)
-            status = "Imported into Apps. Open Library → Imported, then choose Sign to select a certificate or Apple Account."
-        } catch { status = "Library import failed: " + error.localizedDescription }
+            // Feather processes imported packages asynchronously. Keep a dedicated copy
+            // alive until the actual import callback, even if this screen is dismissed.
+            try FileManager.default.copyItem(at: file, to: staged)
+        } catch {
+            busy = false
+            status = "Cannot stage the IPA: " + error.localizedDescription
+            return
+        }
+        let id = "EmberIPAStudio-" + UUID().uuidString
+        let download = DownloadManager.shared.startArchive(from: staged, id: id)
+        FR.handlePackageFile(staged, download: download) { error in
+            DispatchQueue.main.async {
+                try? FileManager.default.removeItem(at: staged)
+                if let index = DownloadManager.shared.getDownloadIndex(by: id) {
+                    DownloadManager.shared.downloads.remove(at: index)
+                }
+                busy = false
+                if let error {
+                    status = "Library import failed: " + error.localizedDescription
+                    EmberErrorCenter.shared.record(error, operation: "IPA Studio Library import")
+                } else {
+                    status = "Imported into Apps. Open Library → Imported, then Sign to choose a certificate or Apple Account."
+                }
+            }
+        }
     }
 
     private func installWatch(_ file: URL) {
