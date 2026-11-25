@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add universal IPA Studio to Tools: import an iPhone IPA or nested Watch companion, inspect identity metadata, edit display name, bundle identifier, version/build, minimum iOS and URL schemes before re-signing. Route ordinary packages into the existing Apps certificate/Apple Account signer; route Watch packages through separate iPhone/Watch/widget provisioning. Preserve nested companion identifier references when changing the host ID. This is a new workflow and requires physical-device testing.
+- Validate IPA paths, reject symbolic links and excessive expansion, and keep edits in a separate temporary package. Existing signatures must be replaced by signing; compiled app icons and binary API requirements are not modified.
+
+
 ## [v0.2.1-build.98] - 2026-11-15
 
 ## Verified changes since v0.2.1-build.97
