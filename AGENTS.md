@@ -43,3 +43,18 @@ Every diagnostic/log report requires Copy with clipboard read-back verification 
 ## Public attribution and owner privacy
 
 Use `soum91` as the author, maintainer, developer, and publisher in all first-party metadata. Do not publish the owner's legal name, private email, or other personal identifiers in source, licenses, Sileo/FlareStore feeds, release assets, binary packages, generated docs, logs, or commits. Audit generated artifacts before publishing. Preserve legitimate third-party copyright notices. Existing bundle identifiers, app groups, and entitlements must not be silently changed, because doing so can break upgrades and stored data.
+
+
+## Mandatory file-picker and import regression contract — all future apps
+
+The owner has repeatedly encountered a critical bug: the iOS native Files picker opens and shows IPA files, but tapping a file does nothing and the app never receives/handles the selection. **Never consider a picker complete merely because it opens.** This applies to every future app, file type, importer, signer, export feature, and subsequent modification, not only IPA Studio or Watch installation.
+
+1. Prefer a system-native picker (UIDocumentPickerViewController or SwiftUI .fileImporter) and properly declared, compatible content types. Support relevant real-world provider types and filename extensions (including .ipa / .tipa) without over-restrictive UTType filters that make visible files unselectable. Explicitly validate the selected extension and contents after selection, rather than assuming a provider-supplied UTType is accurate.
+2. Prove the **complete event path**: tap an actual file in Files (On My iPhone, Downloads, and iCloud Drive as applicable) → receive its URL in the picker delegate/completion → dismiss the picker correctly → start and stop security-scoped access → copy the file into an app-owned staging directory *before releasing access* → validate and complete import → show success or an actionable error. The picker must never appear responsive while silently discarding the selection.
+3. Keep the picked file alive through every asynchronous signing/import/extraction callback. Do not delete or overwrite staging files before downstream consumers finish. Avoid double-presented sheets, stale SwiftUI binding state, competing overlays, cancellation races, and onDisappear cleanup that can erase a file still being processed.
+4. Support cancellation, re-opening the picker, selecting the same file twice, choosing a different file, files with spaces/parentheses in names, and cloud files that require downloading. Surface error details instead of doing nothing. Never mask a failed picker event as success.
+5. Add deterministic tests for URL handling, accepted types/extensions, security-scoped copying, lifecycle and import callbacks wherever possible, **and real-device UI verification** on targeted OS versions. Minimum release test: successfully tap and import an IPA from Downloads, repeat a second import, try a non-IPA rejection, and verify both success and error feedback.
+6. A passing compile or an open Files dialog **does not prove the importer works**. Do not claim a picker fixed or release-ready without an end-to-end on-device test; if hardware testing cannot be performed, label the behavior unverified and preserve a proven working picker path.
+7. Whenever any new app is created or an import workflow is changed, carry forward this picker contract to its AGENTS.md and relevant tests. Do not regress an already-working native picker while implementing unrelated features.
+
+This rule must be observed by Codex, Claude, GitHub Actions, and every development assistant working on the repository.
