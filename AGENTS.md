@@ -58,3 +58,7 @@ The owner has repeatedly encountered a critical bug: the iOS native Files picker
 7. Whenever any new app is created or an import workflow is changed, carry forward this picker contract to its AGENTS.md and relevant tests. Do not regress an already-working native picker while implementing unrelated features.
 
 This rule must be observed by Codex, Claude, GitHub Actions, and every development assistant working on the repository.
+
+## Mandatory file picker / import policy (release-blocking)
+
+Every file picker, browser, import, export, signing or upload workflow in this repository **MUST** comply with [MANDATORY_FILE_PICKER.md](https://github.com/soum91/tweaks/blob/main/MANDATORY_FILE_PICKER.md). This covers future apps and all platforms. Files must be selectable with a real tap, return to the caller, copy safely to app-owned storage, complete the import and give visible success/error. Real-device end-to-end testing is required before claiming success. Merely opening Files or compiling is insufficient. Preserve existing project policies. Codex and Claude must propagate this rule to new app repositories.
