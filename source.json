@@ -19,6 +19,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.2.106",
+          "buildVersion": "106",
+          "date": "2026-11-26T04:39:18Z",
+          "localizedDescription": "EmberSign 0.2.1 build 106. Changes: docs(quality): enforce end-to-end native picker checks for every future app and import flow.",
+          "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.106/EmberSign-build-106.ipa",
+          "size": 23677073,
+          "minOSVersion": "16.0"
+        },
+        {
           "version": "0.2.105",
           "buildVersion": "105",
           "date": "2026-11-25T06:59:11Z",
@@ -460,12 +469,12 @@
           "minOSVersion": "16.0"
         }
       ],
-      "version": "0.2.105",
-      "versionDate": "2026-11-25T06:59:11Z",
-      "versionDescription": "EmberSign 0.2.1 build 105. Changes: feat(ipa): validate and remap iPhone and Watch package identities before signing; feat(ipa): add one import and metadata editor for iPhone and Watch packages; feat(ipa): expose unified import/edit flow and document pre-signing limitations; feat(watch): link universal IPA editor from Watch provisioning screen; fix(ipa): keep staged files through asynchronous library import and invalidate stale edits.",
-      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.105/EmberSign-build-105.ipa",
-      "size": 23676944,
-      "buildVersion": "105"
+      "version": "0.2.106",
+      "versionDate": "2026-11-26T04:39:18Z",
+      "versionDescription": "EmberSign 0.2.1 build 106. Changes: docs(quality): enforce end-to-end native picker checks for every future app and import flow.",
+      "downloadURL": "https://github.com/soum91/embersign/releases/download/v0.2.1-build.106/EmberSign-build-106.ipa",
+      "size": 23677073,
+      "buildVersion": "106"
     }
   ],
   "news": []
